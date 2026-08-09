@@ -36,30 +36,28 @@
 
   .bubble {
     position: absolute;
-    max-width: min(38vw, 420px);
-    padding: 16px 22px;
+    top: 0;
+    left: 0;
+    max-width: min(32vw, 380px);
+    padding: 14px 20px;
     border-radius: 24px;
     background: rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(255, 255, 255, 0.18);
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
     color: #fff;
-    font-size: clamp(16px, 2.2vw, 30px);
+    font-size: clamp(15px, 1.9vw, 26px);
     line-height: 1.4;
     font-weight: 600;
     word-break: break-word;
     white-space: pre-wrap;
-    will-change: transform, opacity;
-    animation: floatUp var(--dur, 14s) linear forwards;
+    will-change: transform;
+    opacity: 0;
+    transform: scale(0.6);
+    transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
     text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   }
-
-  @keyframes floatUp {
-    0%   { transform: translateY(0) translateX(0) scale(0.6); opacity: 0; }
-    8%   { opacity: 1; transform: translateY(-8vh) scale(1); }
-    90%  { opacity: 1; }
-    100% { transform: translateY(-115vh) translateX(var(--drift, 0px)) scale(1); opacity: 0; }
-  }
+  .bubble.show { opacity: 1; }
 
   /* ===== Header / counter ===== */
   #hud {
@@ -317,9 +315,10 @@
 
   var cfg = loadConfig();
   var timer = null;
-  var seenRowCount = 0;       // rows already accounted for
-  var totalShown = 0;         // bubbles shown counter
-  var initialized = false;    // did we do the first fetch (baseline)?
+  var seenRowCount = 0;       // rows already turned into bubbles
+  var initialized = false;    // did we do the first fetch?
+  var bubbles = [];           // persistent floating bubbles {el,x,y,vx,vy,w,h}
+  var rafRunning = false;
 
   // ---------- config helpers ----------
   function loadConfig() {
@@ -425,7 +424,8 @@
     if (timer) { clearInterval(timer); timer = null; }
     seenRowCount = 0;
     initialized = false;
-    totalShown = 0;
+    bubbles = [];
+    stage.innerHTML = "";
     hudCount.textContent = "0";
     if (!cfg) { setStatus("idle", "설정이 필요합니다"); emptyEl.classList.remove("hidden"); return; }
     hudTitle.textContent = cfg.title || "실시간 응답";
@@ -449,9 +449,16 @@
       var dataRows = rows.slice(1);
 
       if (!initialized) {
-        // baseline: don't flood the screen with old answers on first load
-        seenRowCount = dataRows.length;
+        // first load: float ALL existing answers onto the screen
         initialized = true;
+        seenRowCount = dataRows.length;
+        var shown = 0;
+        dataRows.forEach(function (row) {
+          var text = (row[colIdx] || "").trim();
+          if (text) { (function (t, d) {
+            setTimeout(function () { spawnBubble(t); }, d);
+          })(text, shown++ * 120); }
+        });
         return;
       }
       if (dataRows.length > seenRowCount) {
@@ -459,7 +466,7 @@
         seenRowCount = dataRows.length;
         fresh.forEach(function (row, i) {
           var text = (row[colIdx] || "").trim();
-          if (text) setTimeout(function () { spawnBubble(text); }, i * 500);
+          if (text) setTimeout(function () { spawnBubble(text); }, i * 400);
         });
       }
     }).catch(function (e) {
@@ -485,20 +492,62 @@
     var b = document.createElement("div");
     b.className = "bubble";
     b.textContent = text;
-    var dur = 12 + Math.random() * 8;            // 12–20s
-    var left = 4 + Math.random() * 62;            // 4%–66% (max-width leaves room)
-    var drift = (Math.random() * 2 - 1) * 120;    // -120px..120px horizontal drift
-    b.style.setProperty("--dur", dur + "s");
-    b.style.setProperty("--drift", drift + "px");
-    b.style.left = left + "vw";
-    b.style.bottom = "-60px";
     b.style.background = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+    b.style.visibility = "hidden";
     stage.appendChild(b);
-    b.addEventListener("animationend", function () { b.remove(); });
 
-    totalShown++;
-    hudCount.textContent = String(totalShown);
+    var w = b.offsetWidth, h = b.offsetHeight;
+    var W = stage.clientWidth, H = stage.clientHeight;
+    var x = Math.random() * Math.max(1, W - w);
+    var y = Math.random() * Math.max(1, H - h);
+    var speed = 0.25 + Math.random() * 0.55;       // px per frame (gentle)
+    var ang = Math.random() * Math.PI * 2;
+    var obj = {
+      el: b, x: x, y: y,
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed,
+      w: w, h: h
+    };
+    b.style.visibility = "";
+    b.style.transform = "translate3d(" + x + "px," + y + "px,0) scale(0.6)";
+    bubbles.push(obj);
+
+    // fade + pop in, then the physics loop drives the transform
+    requestAnimationFrame(function () {
+      b.classList.add("show");
+      b.style.transform = "translate3d(" + x + "px," + y + "px,0) scale(1)";
+    });
+
+    hudCount.textContent = String(bubbles.length);
+    if (!rafRunning) { rafRunning = true; requestAnimationFrame(tick); }
   }
+
+  function tick() {
+    var W = stage.clientWidth, H = stage.clientHeight;
+    for (var i = 0; i < bubbles.length; i++) {
+      var o = bubbles[i];
+      o.x += o.vx;
+      o.y += o.vy;
+      if (o.x <= 0) { o.x = 0; o.vx = Math.abs(o.vx); }
+      else if (o.x >= W - o.w) { o.x = Math.max(0, W - o.w); o.vx = -Math.abs(o.vx); }
+      if (o.y <= 0) { o.y = 0; o.vy = Math.abs(o.vy); }
+      else if (o.y >= H - o.h) { o.y = Math.max(0, H - o.h); o.vy = -Math.abs(o.vy); }
+      o.el.style.transform = "translate3d(" + o.x + "px," + o.y + "px,0) scale(1)";
+    }
+    if (bubbles.length) { requestAnimationFrame(tick); }
+    else { rafRunning = false; }
+  }
+
+  // keep bubble sizes/bounds correct when the window changes
+  window.addEventListener("resize", function () {
+    var W = stage.clientWidth, H = stage.clientHeight;
+    bubbles.forEach(function (o) {
+      o.w = o.el.offsetWidth;
+      o.h = o.el.offsetHeight;
+      if (o.x > W - o.w) o.x = Math.max(0, W - o.w);
+      if (o.y > H - o.h) o.y = Math.max(0, H - o.h);
+    });
+  });
 
   // ---------- utils ----------
   function escHtml(s) { return (s || "").replace(/[&<>]/g, function (c) {
