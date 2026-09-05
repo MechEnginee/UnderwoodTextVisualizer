@@ -189,7 +189,7 @@
       <div class="field">
         <label>화면당 단어 개수 <span class="hint">(중복 제외, 위/아래 각각)</span></label>
         <div class="slider">
-          <input id="f_maxWords" type="range" min="4" max="40" step="1" value="16" />
+          <input id="f_maxWords" type="range" min="4" max="300" step="1" value="16" />
           <output id="o_maxWords">16</output>
         </div>
       </div>
@@ -198,6 +198,13 @@
         <div class="slider">
           <input id="f_fontScale" type="range" min="0.6" max="2" step="0.05" value="1" />
           <output id="o_fontScale">1.00×</output>
+        </div>
+      </div>
+      <div class="field">
+        <label>떠다니는 속도 <span class="hint">(느리게 ↔ 빠르게)</span></label>
+        <div class="slider">
+          <input id="f_speed" type="range" min="0.2" max="3" step="0.05" value="1" />
+          <output id="o_speed">1.00×</output>
         </div>
       </div>
     </div>
@@ -259,7 +266,7 @@
   // rows deleted from the sheet also disappear from the screen.
   var shown = { top: new Map(), bottom: new Map() };
   var MAX_PER_HALF = 16;   // overridden by cfg.maxWords
-  var DEFAULTS = { maxWords: 16, fontScale: 1 };
+  var DEFAULTS = { maxWords: 16, fontScale: 1, speed: 1 };
 
   var PALETTE = {
     top: ["#dfe6f6","#c9d2e8","#b9c3dd","#aab5d2","#98a4c4","#8d99b9","#828fb0","#7f8caf","#7b88ab"],
@@ -303,8 +310,9 @@
     var el = document.createElement("span");
     el.className = "w";
     el.textContent = text;
-    el.style.left = rand(3, 78) + "%";
-    el.style.top = rand(10, 80) + "%";
+    // spread wider than the old 16-word layout needed, so a full 300 fill the half
+    el.style.left = rand(2, 86) + "%";
+    el.style.top = rand(5, 88) + "%";
     el.style.setProperty("--base", rand(19, 30).toFixed(1) + "px"); // per-word variety
     el.style.color = pick(PALETTE[which]);
     var drift = pick(DRIFT), dd = rand(18, 30).toFixed(1);
@@ -359,11 +367,14 @@
     map.forEach(function (rec, key) { if (!want[key]) gone.push(key); });
     gone.forEach(function (key) { fadeOut(map.get(key).el); map.delete(key); });
 
+    // 220ms apart when there are few words; tighter as the count grows so a
+    // full screen of 300 finishes appearing in a few seconds
+    var step = Math.max(25, Math.min(220, Math.round(4000 / Math.max(1, desired.length))));
     var added = 0;
     desired.forEach(function (d) {
       var rec = map.get(d.key);
       if (!rec) {
-        var delay = added++ * 220;
+        var delay = added++ * step;
         map.set(d.key, { el: null, count: d.count }); // reserve so a fast re-poll can't double-add
         (function (item) {
           setTimeout(function () {
@@ -383,6 +394,9 @@
   function applyDisplay(c) {
     var scale = (c && c.fontScale) || DEFAULTS.fontScale;
     document.documentElement.style.setProperty("--scale", scale);
+    // --spd multiplies the drift duration, so a faster speed means a shorter cycle
+    var speed = (c && c.speed) || DEFAULTS.speed;
+    document.documentElement.style.setProperty("--spd", (1 / speed).toFixed(3));
     MAX_PER_HALF = (c && c.maxWords) || DEFAULTS.maxWords;
     // trim the oldest immediately if the cap was lowered (the next poll re-syncs)
     ["top", "bottom"].forEach(function (k) {
@@ -434,6 +448,7 @@
       byId("f_interval").value = cfg.interval || 5;
       byId("f_maxWords").value = cfg.maxWords || DEFAULTS.maxWords;
       byId("f_fontScale").value = cfg.fontScale || DEFAULTS.fontScale;
+      byId("f_speed").value = cfg.speed || DEFAULTS.speed;
       byId("f_topLabel").value = cfg.topLabel || "나를 불안하게 하는 말";
       byId("f_botLabel").value = cfg.botLabel || "그런 나에게 하고 싶은 위로";
       if (cfg.topCol) setOne("f_topCol", cfg.topCol);
@@ -451,6 +466,7 @@
       interval: Math.max(2, parseInt(byId("f_interval").value, 10) || 5),
       maxWords: Math.max(4, parseInt(byId("f_maxWords").value, 10) || DEFAULTS.maxWords),
       fontScale: parseFloat(byId("f_fontScale").value) || DEFAULTS.fontScale,
+      speed: parseFloat(byId("f_speed").value) || DEFAULTS.speed,
       topCol: byId("f_topCol").value,
       botCol: byId("f_botCol").value,
       topLabel: byId("f_topLabel").value.trim() || "나를 불안하게 하는 말",
@@ -490,12 +506,15 @@
   function syncSliders(live) {
     var n = parseInt(byId("f_maxWords").value, 10);
     var s = parseFloat(byId("f_fontScale").value);
+    var v = parseFloat(byId("f_speed").value);
     byId("o_maxWords").textContent = n;
     byId("o_fontScale").textContent = s.toFixed(2) + "×";
-    if (live) applyDisplay({ maxWords: n, fontScale: s });
+    byId("o_speed").textContent = v.toFixed(2) + "×";
+    if (live) applyDisplay({ maxWords: n, fontScale: s, speed: v });
   }
   byId("f_maxWords").addEventListener("input", function () { syncSliders(true); });
   byId("f_fontScale").addEventListener("input", function () { syncSliders(true); });
+  byId("f_speed").addEventListener("input", function () { syncSliders(true); });
 
   byId("gear").addEventListener("click", function () { openSettings(); syncSliders(false); });
   byId("btnLoadCols").addEventListener("click", loadCols);
