@@ -12,6 +12,7 @@
     --spd: 1;
     --scale: 1;
     --mq: 1;      /* viewport shrink factor */
+    --labelScale: 1;
     --panel: #151b29;
     --panel-2: #1c2334;
     --border: rgba(200,212,240,.16);
@@ -56,8 +57,9 @@
 
   /* ── labels ── */
   .label { position: absolute; display: flex; align-items: center; gap: 12px; z-index: 3; }
-  .label .dot { width: 8px; height: 8px; border-radius: 50%; }
-  .label .txt { font-size: 15px; font-weight: 700; letter-spacing: .14em; }
+  .label .dot { width: calc(8px * var(--labelScale)); height: calc(8px * var(--labelScale));
+    border-radius: 50%; flex: none; }
+  .label .txt { font-size: calc(15px * var(--labelScale)); font-weight: 700; letter-spacing: .14em; }
   .label.top { left: 44px; top: 38px; }
   .label.bottom { left: 44px; bottom: 38px; }
   .label.top .dot { background: #7f8db3; } .label.top .txt { color: #8e9bbd; }
@@ -241,6 +243,26 @@
       </div>
     </div>
 
+    <div class="row">
+      <div class="field">
+        <label>라벨 크기 <span class="hint">(위/아래 제목)</span></label>
+        <div class="slider">
+          <input id="f_labelScale" type="range" min="0.6" max="2.5" step="0.05" value="1" />
+          <output id="o_labelScale">1.00×</output>
+        </div>
+      </div>
+      <div class="field">
+        <label>단어 굵기 <span class="hint">(반복될수록 더 굵어짐)</span></label>
+        <select id="f_wordWeight">
+          <option value="400">보통</option>
+          <option value="500">조금 굵게</option>
+          <option value="600">굵게</option>
+          <option value="700">더 굵게</option>
+          <option value="800">아주 굵게</option>
+        </select>
+      </div>
+    </div>
+
     <div class="split">
       <div class="box top-box">
         <h4><span class="dot"></span> 위쪽 (불안)</h4>
@@ -298,7 +320,10 @@
   // rows deleted from the sheet also disappear from the screen.
   var shown = { top: new Map(), bottom: new Map() };
   var MAX_PER_HALF = 16;   // overridden by cfg.maxWords
-  var DEFAULTS = { maxWords: 16, fontScale: 1, speed: 1, walker: 1 };
+  var DEFAULTS = { maxWords: 16, fontScale: 1, speed: 1, walker: 1,
+                   labelScale: 1, wordWeight: 400 };
+  var W_STEPS = [400, 500, 600, 700, 800, 900];
+  var weightBase = DEFAULTS.wordWeight;   // repeated answers step up from here
   var walkerScale = DEFAULTS.walker;   // read live by the rope animation
 
   var PALETTE = {
@@ -332,7 +357,10 @@
   function styleByCount(which, el, count) {
     var grow = Math.min(2.8, 1 + Math.log(count) / Math.LN2 * 0.45);
     el.style.setProperty("--grow", grow.toFixed(3));
-    el.style.fontWeight = count >= 3 ? 900 : count >= 2 ? 700 : 400;
+    var base = W_STEPS.indexOf(weightBase);
+    if (base < 0) base = 0;
+    var bump = count >= 3 ? 2 : count >= 2 ? 1 : 0;
+    el.style.fontWeight = W_STEPS[Math.min(W_STEPS.length - 1, base + bump)];
     var floor = which === "top" ? 0.55 : 0.7;
     el.style.setProperty("--vis", Math.min(1, floor + (count - 1) * 0.12).toFixed(2));
     el.title = count > 1 ? el.textContent + " ×" + count : el.textContent;
@@ -475,8 +503,15 @@
     // --spd multiplies the drift duration, so a faster speed means a shorter cycle
     var speed = (c && c.speed) || DEFAULTS.speed;
     document.documentElement.style.setProperty("--spd", (1 / speed).toFixed(3));
+    document.documentElement.style.setProperty("--labelScale",
+      (c && c.labelScale) || DEFAULTS.labelScale);
     walkerScale = (c && c.walker) || DEFAULTS.walker;
+    weightBase = (c && c.wordWeight) || DEFAULTS.wordWeight;
     MAX_PER_HALF = (c && c.maxWords) || DEFAULTS.maxWords;
+    // words already on screen pick up the new weight straight away
+    ["top", "bottom"].forEach(function (k) {
+      shown[k].forEach(function (rec) { if (rec.el) styleByCount(k, rec.el, rec.count); });
+    });
     // trim the oldest immediately if the cap was lowered (the next poll re-syncs)
     ["top", "bottom"].forEach(function (k) {
       var map = shown[k];
@@ -529,6 +564,8 @@
       byId("f_fontScale").value = cfg.fontScale || DEFAULTS.fontScale;
       byId("f_speed").value = cfg.speed || DEFAULTS.speed;
       byId("f_walker").value = cfg.walker || DEFAULTS.walker;
+      byId("f_labelScale").value = cfg.labelScale || DEFAULTS.labelScale;
+      byId("f_wordWeight").value = cfg.wordWeight || DEFAULTS.wordWeight;
       byId("f_topLabel").value = cfg.topLabel || "나를 불안하게 하는 말";
       byId("f_botLabel").value = cfg.botLabel || "그런 나에게 하고 싶은 위로";
       if (cfg.topCol) setOne("f_topCol", cfg.topCol);
@@ -548,6 +585,8 @@
       fontScale: parseFloat(byId("f_fontScale").value) || DEFAULTS.fontScale,
       speed: parseFloat(byId("f_speed").value) || DEFAULTS.speed,
       walker: parseFloat(byId("f_walker").value) || DEFAULTS.walker,
+      labelScale: parseFloat(byId("f_labelScale").value) || DEFAULTS.labelScale,
+      wordWeight: parseInt(byId("f_wordWeight").value, 10) || DEFAULTS.wordWeight,
       topCol: byId("f_topCol").value,
       botCol: byId("f_botCol").value,
       topLabel: byId("f_topLabel").value.trim() || "나를 불안하게 하는 말",
@@ -589,16 +628,22 @@
     var s = parseFloat(byId("f_fontScale").value);
     var v = parseFloat(byId("f_speed").value);
     var wk = parseFloat(byId("f_walker").value);
+    var ls = parseFloat(byId("f_labelScale").value);
+    var ww = parseInt(byId("f_wordWeight").value, 10);
     byId("o_maxWords").textContent = n;
     byId("o_fontScale").textContent = s.toFixed(2) + "×";
     byId("o_speed").textContent = v.toFixed(2) + "×";
     byId("o_walker").textContent = wk.toFixed(2) + "×";
-    if (live) applyDisplay({ maxWords: n, fontScale: s, speed: v, walker: wk });
+    byId("o_labelScale").textContent = ls.toFixed(2) + "×";
+    if (live) applyDisplay({ maxWords: n, fontScale: s, speed: v, walker: wk,
+                             labelScale: ls, wordWeight: ww });
   }
   byId("f_maxWords").addEventListener("input", function () { syncSliders(true); });
   byId("f_fontScale").addEventListener("input", function () { syncSliders(true); });
   byId("f_speed").addEventListener("input", function () { syncSliders(true); });
   byId("f_walker").addEventListener("input", function () { syncSliders(true); });
+  byId("f_labelScale").addEventListener("input", function () { syncSliders(true); });
+  byId("f_wordWeight").addEventListener("change", function () { syncSliders(true); });
 
   // ── the rope and the figure walking it ─────────────────────────────────
   function tightrope() {
