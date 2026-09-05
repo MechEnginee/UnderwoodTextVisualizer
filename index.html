@@ -174,11 +174,11 @@
 
     <div class="field">
       <label>Google API 키 <span class="hint">(Sheets API 키)</span></label>
-      <input id="f_apiKey" type="text" placeholder="AIza..." autocomplete="off" />
+      <input id="f_apiKey" type="text" placeholder="AIza..." autocomplete="off" value="AIzaSyCYpttBX3Sjf1M7QFfTzW8yJyxye5peY-0" />
     </div>
     <div class="field">
       <label>스프레드시트 ID <span class="hint">(시트 URL 의 /d/ 와 /edit 사이)</span></label>
-      <input id="f_sheetId" type="text" placeholder="1AbC...xyz" autocomplete="off" />
+      <input id="f_sheetId" type="text" placeholder="1AbC...xyz" autocomplete="off" value="1w3Qkk792-s78ZCqee663znXxnhX-FNIIJoS6YIo75Qk" />
     </div>
     <div class="row">
       <div class="field"><label>탭(시트) 이름</label><input id="f_tab" type="text" placeholder="설문지 응답 시트1" /></div>
@@ -246,6 +246,9 @@
 (function () {
   "use strict";
   var LS = "floating_words_cfg_v1";
+  // 설정창 기본값 (일회성 데모용으로 직접 넣어둔 값)
+  var DEFAULT_API_KEY = "AIzaSyCYpttBX3Sjf1M7QFfTzW8yJyxye5peY-0";
+  var DEFAULT_SHEET_ID = "1w3Qkk792-s78ZCqee663znXxnhX-FNIIJoS6YIo75Qk";
   var byId = function (id) { return document.getElementById(id); };
   var halfTop = byId("halfTop"), halfBottom = byId("halfBottom");
   var statusEl = byId("status"), statusText = byId("statusText"), formErr = byId("formErr");
@@ -425,8 +428,8 @@
   function openSettings() {
     byId("settings").classList.add("open");
     if (cfg) {
-      byId("f_apiKey").value = cfg.apiKey || "";
-      byId("f_sheetId").value = cfg.sheetId || "";
+      byId("f_apiKey").value = cfg.apiKey || DEFAULT_API_KEY;
+      byId("f_sheetId").value = cfg.sheetId || DEFAULT_SHEET_ID;
       byId("f_tab").value = cfg.tab || "";
       byId("f_interval").value = cfg.interval || 5;
       byId("f_maxWords").value = cfg.maxWords || DEFAULTS.maxWords;
