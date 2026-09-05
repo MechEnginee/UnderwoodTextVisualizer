@@ -40,13 +40,21 @@
   .top::after    { background: linear-gradient(180deg, rgba(10,14,26,0) 55%, rgba(10,14,26,.85) 100%); }
   .bottom::after { background: linear-gradient(0deg,   rgba(10,11,16,0) 60%, rgba(10,11,16,.7) 100%); }
 
-  /* ── divider ── */
+  /* ── divider: a slack rope with someone walking it ── */
   .divider {
-    position: absolute; left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-.5px);
-    background: linear-gradient(90deg, rgba(242,178,58,0) 0%, rgba(242,178,58,.75) 18%,
-      rgba(242,178,58,.95) 50%, rgba(242,178,58,.75) 82%, rgba(242,178,58,0) 100%);
-    box-shadow: 0 0 24px rgba(242,178,58,.45); z-index: 4;
+    position: absolute; left: 0; right: 0; top: 50%;
+    height: 210px; transform: translateY(-50%);
+    z-index: 5; pointer-events: none;
   }
+  .divider svg { display: block; width: 100%; height: 100%; }
+  /* the rope fades at both edges so it reads as continuing off-screen */
+  .rope {
+    fill: none; stroke: var(--gold); stroke-width: 2.4; stroke-linecap: round;
+    filter: drop-shadow(0 0 7px rgba(242,178,58,.6));
+  }
+  .wk { fill: none; stroke: #ffe6ad; stroke-width: 2.8; stroke-linecap: round;
+        filter: drop-shadow(0 0 5px rgba(255,212,121,.5)); }
+  .wk-head { fill: #ffe6ad; stroke: none; filter: drop-shadow(0 0 5px rgba(255,212,121,.5)); }
 
   /* ── labels ── */
   .label { position: absolute; display: flex; align-items: center; gap: 12px; z-index: 3; }
@@ -158,7 +166,19 @@
   <div class="half top" id="halfTop">
     <div class="label top"><span class="dot"></span><span class="txt" id="labelTop">나를 불안하게 하는 말</span></div>
   </div>
-  <div class="divider"></div>
+  <div class="divider" id="divider">
+    <svg id="ropeSvg" aria-hidden="true">
+      <path id="rope" class="rope" />
+      <g id="walker">
+        <circle class="wk-head" cx="0" cy="-55" r="7.5" />
+        <line class="wk" x1="0" y1="-47" x2="0" y2="-21" />
+        <line class="wk" id="armL" x1="0" y1="-41" x2="-23" y2="-50" />
+        <line class="wk" id="armR" x1="0" y1="-41" x2="23" y2="-50" />
+        <line class="wk" id="legL" x1="0" y1="-21" x2="-10" y2="0" />
+        <line class="wk" id="legR" x1="0" y1="-21" x2="10" y2="0" />
+      </g>
+    </svg>
+  </div>
   <div class="half bottom" id="halfBottom">
     <div class="label bottom"><span class="dot"></span><span class="txt" id="labelBottom">그런 나에게 하고 싶은 위로</span></div>
   </div>
@@ -493,6 +513,73 @@
   }
   byId("f_maxWords").addEventListener("input", function () { syncSliders(true); });
   byId("f_fontScale").addEventListener("input", function () { syncSliders(true); });
+
+  // ── the rope and the figure walking it ─────────────────────────────────
+  function tightrope() {
+    var box = byId("divider"), svg = byId("ropeSvg"), rope = byId("rope"), walker = byId("walker");
+    var legL = byId("legL"), legR = byId("legR"), armL = byId("armL"), armR = byId("armR");
+    var H = 210, W = 0, len = 0;
+    var SPEED = 46;          // px along the rope per second
+    var pos = 0, last = 0;
+
+    function build() {
+      W = box.clientWidth || 1200;
+      svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+      var cy = H / 2, d = "", N = 260;
+      for (var i = 0; i <= N; i++) {
+        var t = i / N, x = t * W;
+        // two overlaid waves: a long slack sag plus a shorter tremor
+        var y = cy + Math.sin(t * Math.PI * 2 * 1.2 + 0.6) * 34
+                   + Math.sin(t * Math.PI * 2 * 2.7 + 1.9) * 11;
+        d += (i ? "L" : "M") + x.toFixed(1) + "," + y.toFixed(1);
+      }
+      rope.setAttribute("d", d);
+      len = rope.getTotalLength();
+      if (pos > len) pos = 0;
+    }
+
+    function place(distance, tSec, opacity) {
+      var p = rope.getPointAtLength(distance);
+      var q = rope.getPointAtLength(Math.min(len, distance + 2));
+      var slope = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI;
+      // never quite steady: two out-of-phase sways read as losing balance
+      var teeter = Math.sin(tSec * 2.1) * 4.5 + Math.sin(tSec * 3.9) * 2.4;
+      var step = tSec * 7.2;
+      var bob = Math.abs(Math.sin(step)) * 2.6;
+      walker.setAttribute("transform",
+        "translate(" + p.x.toFixed(2) + "," + (p.y - bob).toFixed(2) + ") " +
+        "rotate(" + (slope + teeter).toFixed(2) + ")");
+      walker.setAttribute("opacity", opacity.toFixed(3));
+
+      var swing = Math.sin(step) * 12;
+      legL.setAttribute("x2", (-swing - 3).toFixed(1));
+      legR.setAttribute("x2", (swing + 3).toFixed(1));
+      var balance = Math.sin(tSec * 2.1) * 6;
+      armL.setAttribute("y2", (-50 + balance).toFixed(1));
+      armR.setAttribute("y2", (-50 - balance).toFixed(1));
+    }
+
+    function frame(ts) {
+      var tSec = ts / 1000;
+      var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0;
+      last = ts;
+      pos += SPEED * dt;
+      if (pos > len) pos -= len;            // reached the right edge, start again at the left
+      var edge = Math.min(pos, len - pos) / 60;   // fade in/out at both ends
+      place(pos, tSec, Math.max(0, Math.min(1, edge)));
+      requestAnimationFrame(frame);
+    }
+
+    build();
+    var rt;
+    window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(build, 150); });
+
+    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (still) place(len * 0.5, 0, 1);
+    else requestAnimationFrame(frame);
+  }
+  // purely decorative — never let it take the word display down with it
+  try { tightrope(); } catch (e) { /* no rope, words still run */ }
 
   byId("gear").addEventListener("click", function () { openSettings(); syncSliders(false); });
   byId("btnLoadCols").addEventListener("click", loadCols);
