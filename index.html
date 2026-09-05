@@ -43,7 +43,7 @@
   /* ── divider: a slack rope with someone walking it ── */
   .divider {
     position: absolute; left: 0; right: 0; top: 50%;
-    height: 180px; transform: translateY(-50%);
+    height: 220px; transform: translateY(-50%);
     z-index: 5; pointer-events: none;
   }
   .divider svg { display: block; width: 100%; height: 100%; }
@@ -52,9 +52,7 @@
     fill: none; stroke: var(--gold); stroke-width: 2.4; stroke-linecap: round;
     filter: drop-shadow(0 0 7px rgba(242,178,58,.6));
   }
-  .wk { fill: none; stroke: #ffe6ad; stroke-width: 2.8; stroke-linecap: round;
-        filter: drop-shadow(0 0 5px rgba(255,212,121,.5)); }
-  .wk-head { fill: #ffe6ad; stroke: none; filter: drop-shadow(0 0 5px rgba(255,212,121,.5)); }
+  #sprite { image-rendering: auto; }
 
   /* ── labels ── */
   .label { position: absolute; display: flex; align-items: center; gap: 12px; z-index: 3; }
@@ -169,13 +167,17 @@
   <div class="divider" id="divider">
     <svg id="ropeSvg" aria-hidden="true">
       <path id="rope" class="rope" />
+      <defs>
+        <!-- one frame of the sheet, positioned so the planted foot is at (0,0) -->
+        <clipPath id="frameClip">
+          <rect x="-88.7" y="-188.1" width="137.875" height="190" />
+        </clipPath>
+      </defs>
       <g id="walker">
-        <circle class="wk-head" cx="0" cy="-55" r="7.5" />
-        <line class="wk" x1="0" y1="-47" x2="0" y2="-21" />
-        <line class="wk" id="armL" x1="0" y1="-41" x2="-23" y2="-50" />
-        <line class="wk" id="armR" x1="0" y1="-41" x2="23" y2="-50" />
-        <line class="wk" id="legL" x1="0" y1="-21" x2="-10" y2="0" />
-        <line class="wk" id="legR" x1="0" y1="-21" x2="10" y2="0" />
+        <g clip-path="url(#frameClip)">
+          <image id="sprite" href="walker.png" x="-88.7" y="-188.1"
+                 width="1103" height="190" />
+        </g>
       </g>
     </svg>
   </div>
@@ -539,9 +541,13 @@
   // ── the rope and the figure walking it ─────────────────────────────────
   function tightrope() {
     var box = byId("divider"), svg = byId("ropeSvg"), rope = byId("rope"), walker = byId("walker");
-    var legL = byId("legL"), legR = byId("legR"), armL = byId("armL"), armR = byId("armR");
-    var H = 180, W = 0, cy = H / 2;
-    var SPEED = 46;      // px across the screen per second
+    var sprite = byId("sprite");
+    var FRAMES = 8, FW = 137.875, ANCHOR_X = 88.7, ANCHOR_Y = 188.1;
+    var FIG = 0.80;      // sprite is 190px tall; draw it ~152px
+    var CYCLE = 112;     // ground covered by one 8-frame cycle — keeps feet from sliding
+    var shownFrame = -1;
+    var H = 220, W = 0, cy = H / 2;
+    var SPEED = 78;      // px across the screen per second
     var SLACK = 4;       // the unloaded rope is very nearly taut
     var LOAD = 34;       // how far the walker's weight drags the rope down
     var SPREAD = 78;     // how far along the rope that pull is felt
@@ -579,19 +585,17 @@
       var slope = Math.atan2(ropeY(wx + 6, wx) - ropeY(wx - 6, wx), 12) * 180 / Math.PI;
       // never quite steady: two out-of-phase sways read as losing balance
       var teeter = Math.sin(tSec * 2.1) * 4.5 + Math.sin(tSec * 3.9) * 2.4;
-      var step = tSec * 7.2;
-      var bob = Math.abs(Math.sin(step)) * 2.6;
       walker.setAttribute("transform",
-        "translate(" + wx.toFixed(2) + "," + (y - bob).toFixed(2) + ") " +
-        "rotate(" + (slope + teeter).toFixed(2) + ")");
+        "translate(" + wx.toFixed(2) + "," + y.toFixed(2) + ") " +
+        "rotate(" + (slope + teeter).toFixed(2) + ") scale(" + FIG + ")");
       walker.setAttribute("opacity", opacity.toFixed(3));
 
-      var swing = Math.sin(step) * 12;
-      legL.setAttribute("x2", (-swing - 3).toFixed(1));
-      legR.setAttribute("x2", (swing + 3).toFixed(1));
-      var balance = Math.sin(tSec * 2.1) * 6;
-      armL.setAttribute("y2", (-50 + balance).toFixed(1));
-      armR.setAttribute("y2", (-50 - balance).toFixed(1));
+      // step through the sheet by distance covered, so the feet don't skate
+      var f = Math.floor(wx / CYCLE * FRAMES) % FRAMES;
+      if (f !== shownFrame) {
+        shownFrame = f;
+        sprite.setAttribute("x", (-ANCHOR_X - f * FW).toFixed(2));
+      }
     }
 
     function frame(ts) {
