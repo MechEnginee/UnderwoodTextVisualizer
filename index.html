@@ -95,9 +95,9 @@
   }
   #gear:hover { transform: rotate(45deg); }
   #status {
-    position: fixed; bottom: 16px; right: 20px; z-index: 20; font-size: 12.5px;
-    color: var(--muted); background: rgba(21,27,41,.7); padding: 5px 12px;
-    border-radius: 999px; border: 1px solid var(--border);
+    display: flex; align-items: center; font-size: 12.5px; color: var(--muted);
+    background: rgba(255,255,255,.04); padding: 8px 12px; margin-bottom: 18px;
+    border-radius: 10px; border: 1px solid var(--border);
   }
   #status .d { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
     background: #5c657d; margin-right: 6px; vertical-align: middle; }
@@ -187,12 +187,12 @@
 </div>
 
 <button id="gear" title="설정">⚙️</button>
-<div id="status"><span class="d"></span><span id="statusText">설정이 필요합니다</span></div>
 
 <div id="settings">
   <div class="panel">
     <h2>연결 설정</h2>
     <p class="sub">위·아래 화면에 각각 다른 구글시트 열의 응답이 떠다닙니다.</p>
+    <div id="status"><span class="d"></span><span id="statusText">설정이 필요합니다</span></div>
 
     <div class="field">
       <label>Google API 키 <span class="hint">(Sheets API 키)</span></label>
@@ -222,6 +222,9 @@
           <output id="o_fontScale">1.00×</output>
         </div>
       </div>
+    </div>
+
+    <div class="row">
       <div class="field">
         <label>떠다니는 속도 <span class="hint">(느리게 ↔ 빠르게)</span></label>
         <div class="slider">
@@ -230,7 +233,7 @@
         </div>
       </div>
       <div class="field">
-        <label>줄 타는 사람 크기 <span class="hint">(걸음·밧줄 눌림도 함께 조절)</span></label>
+        <label>줄 타는 사람 크기 <span class="hint">(걸음·눌림도 함께)</span></label>
         <div class="slider">
           <input id="f_walker" type="range" min="0.3" max="3" step="0.05" value="1" />
           <output id="o_walker">1.00×</output>
