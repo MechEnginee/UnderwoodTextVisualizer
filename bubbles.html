@@ -1,0 +1,573 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>실시간 응답 버블 · Google Form Live Bubbles</title>
+<style>
+  :root {
+    --bg-1: #0f172a;
+    --bg-2: #1e1b4b;
+    --bg-3: #312e81;
+    --text: #f8fafc;
+    --muted: #94a3b8;
+    --accent: #818cf8;
+    --panel: rgba(15, 23, 42, 0.92);
+    --border: rgba(148, 163, 184, 0.25);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
+      "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    color: var(--text);
+    background: radial-gradient(circle at 20% 20%, var(--bg-3), transparent 55%),
+      radial-gradient(circle at 80% 80%, var(--bg-2), transparent 55%),
+      linear-gradient(135deg, var(--bg-1), #020617);
+  }
+
+  /* ===== Stage (floating area) ===== */
+  #stage {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  .bubble {
+    position: absolute;
+    top: 0;
+    left: 0;
+    max-width: min(32vw, 380px);
+    padding: 14px 20px;
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+    color: #fff;
+    font-size: clamp(15px, 1.9vw, 26px);
+    line-height: 1.4;
+    font-weight: 600;
+    word-break: break-word;
+    white-space: pre-wrap;
+    will-change: transform;
+    opacity: 0;
+    transform: scale(0.6);
+    transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  }
+  .bubble.show { opacity: 1; }
+
+  /* ===== Header / counter ===== */
+  #hud {
+    position: fixed;
+    top: 18px;
+    left: 22px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    pointer-events: none;
+  }
+  #hud .title {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  #hud .count {
+    background: rgba(129, 140, 248, 0.2);
+    border: 1px solid var(--accent);
+    color: #c7d2fe;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  #status {
+    position: fixed;
+    bottom: 16px;
+    left: 22px;
+    z-index: 20;
+    font-size: 13px;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  #status .dot {
+    display: inline-block;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: #64748b;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  #status.live .dot { background: #22c55e; box-shadow: 0 0 10px #22c55e; }
+  #status.error .dot { background: #ef4444; box-shadow: 0 0 10px #ef4444; }
+
+  /* ===== Gear button ===== */
+  #gear {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 30;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 20px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.2s;
+  }
+  #gear:hover { transform: rotate(45deg); }
+
+  /* ===== Settings panel ===== */
+  #settings {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(2, 6, 23, 0.7);
+    backdrop-filter: blur(4px);
+  }
+  #settings.open { display: flex; }
+  .panel {
+    width: min(560px, 92vw);
+    max-height: 90vh;
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+  .panel h2 { margin: 0 0 4px; font-size: 22px; }
+  .panel p.sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #cbd5e1;
+  }
+  .field .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+  .field input, .field select {
+    width: 100%;
+    padding: 11px 13px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: rgba(15, 23, 42, 0.6);
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .field input:focus, .field select:focus { outline: 2px solid var(--accent); }
+  .row { display: flex; gap: 12px; }
+  .row .field { flex: 1; }
+  .actions { display: flex; gap: 10px; margin-top: 12px; }
+  button.primary {
+    flex: 1;
+    padding: 12px;
+    border-radius: 12px;
+    border: none;
+    background: var(--accent);
+    color: #0b1120;
+    font-weight: 800;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  button.ghost {
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .guide {
+    margin-top: 20px;
+    padding: 16px;
+    border-radius: 12px;
+    background: rgba(129, 140, 248, 0.08);
+    border: 1px solid rgba(129, 140, 248, 0.25);
+    font-size: 13px;
+    line-height: 1.7;
+    color: #cbd5e1;
+  }
+  .guide b { color: #e0e7ff; }
+  .guide ol { margin: 8px 0 0; padding-left: 20px; }
+  .guide code {
+    background: rgba(0,0,0,0.35);
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: 12px;
+  }
+  .err { color: #fca5a5; font-size: 13px; margin-top: 8px; min-height: 18px; }
+
+  /* Empty state */
+  #empty {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--muted);
+    padding: 20px;
+  }
+  #empty h1 { color: var(--text); font-size: 28px; margin: 0 0 8px; }
+  #empty.hidden { display: none; }
+</style>
+
+<div id="stage"></div>
+
+<div id="hud">
+  <span class="title" id="hudTitle">실시간 응답</span>
+  <span class="count" id="hudCount">0</span>
+</div>
+
+<div id="status"><span class="dot"></span><span id="statusText">설정이 필요합니다</span></div>
+
+<button id="gear" title="설정">⚙️</button>
+
+<div id="empty">
+  <h1>🫧 실시간 응답 버블</h1>
+  <p>구글폼 응답을 실시간으로 화면에 띄웁니다.<br />오른쪽 위 ⚙️ 를 눌러 시트를 연결하세요.</p>
+</div>
+
+<div id="settings">
+  <div class="panel">
+    <h2>⚙️ 연결 설정</h2>
+    <p class="sub">Google Sheets API로 응답 시트를 주기적으로 읽어옵니다.</p>
+
+    <div class="field">
+      <label>Google API 키 <span class="hint">(Sheets API 사용 설정된 키)</span></label>
+      <input id="f_apiKey" type="text" placeholder="AIza..." autocomplete="off" />
+    </div>
+
+    <div class="field">
+      <label>스프레드시트 ID <span class="hint">(시트 URL 의 /d/ 와 /edit 사이 값)</span></label>
+      <input id="f_sheetId" type="text" placeholder="1AbC...xyz" autocomplete="off" />
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>탭(시트) 이름</label>
+        <input id="f_tab" type="text" placeholder="설문지 응답 시트1" />
+      </div>
+      <div class="field">
+        <label>폴링 간격(초)</label>
+        <input id="f_interval" type="number" min="2" value="5" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>띄울 질문(열) 선택
+        <span class="hint">— 연결하면 목록이 채워집니다</span></label>
+      <select id="f_column"><option value="">먼저 위 정보를 입력하고 "열 불러오기"</option></select>
+    </div>
+
+    <div class="field">
+      <label>화면 상단 제목</label>
+      <input id="f_title" type="text" placeholder="실시간 응답" />
+    </div>
+
+    <div class="err" id="formErr"></div>
+
+    <div class="actions">
+      <button class="ghost" id="btnLoadCols">열 불러오기</button>
+      <button class="primary" id="btnSave">저장하고 시작</button>
+    </div>
+
+    <div class="guide">
+      <b>처음이신가요? 설정 방법</b>
+      <ol>
+        <li>구글폼 → <b>응답</b> 탭 → 시트 아이콘으로 <b>스프레드시트 연결</b></li>
+        <li>그 시트 → <b>공유</b> → <b>링크가 있는 모든 사용자 = 뷰어</b></li>
+        <li><code>console.cloud.google.com</code> → 프로젝트 생성 → <b>Google Sheets API</b> 사용 설정</li>
+        <li><b>사용자 인증 정보 → API 키 만들기</b> → 키 복사 (HTTP 리퍼러 제한 권장)</li>
+        <li>위 칸을 채우고 <b>열 불러오기 → 질문 선택 → 저장</b></li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var LS_KEY = "gform_bubbles_config_v1";
+  var stage = document.getElementById("stage");
+  var statusEl = document.getElementById("status");
+  var statusText = document.getElementById("statusText");
+  var hudCount = document.getElementById("hudCount");
+  var hudTitle = document.getElementById("hudTitle");
+  var emptyEl = document.getElementById("empty");
+  var settingsEl = document.getElementById("settings");
+  var formErr = document.getElementById("formErr");
+
+  var cfg = loadConfig();
+  var timer = null;
+  var seenRowCount = 0;       // rows already turned into bubbles
+  var initialized = false;    // did we do the first fetch?
+  var bubbles = [];           // persistent floating bubbles {el,x,y,vx,vy,w,h}
+  var rafRunning = false;
+
+  // ---------- config helpers ----------
+  function loadConfig() {
+    try { return JSON.parse(localStorage.getItem(LS_KEY)) || null; }
+    catch (e) { return null; }
+  }
+  function saveConfig(c) { localStorage.setItem(LS_KEY, JSON.stringify(c)); }
+
+  // ---------- Sheets API ----------
+  function valuesUrl(id, range, key) {
+    return "https://sheets.googleapis.com/v4/spreadsheets/" +
+      encodeURIComponent(id) + "/values/" + encodeURIComponent(range) +
+      "?key=" + encodeURIComponent(key) +
+      "&majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE";
+  }
+
+  function fetchValues(c) {
+    var range = c.tab ? (c.tab) : "A:ZZ";
+    return fetch(valuesUrl(c.sheetId, range, c.apiKey))
+      .then(function (r) {
+        return r.json().then(function (body) {
+          if (!r.ok) {
+            var msg = (body && body.error && body.error.message) || ("HTTP " + r.status);
+            throw new Error(msg);
+          }
+          return body.values || [];
+        });
+      });
+  }
+
+  // ---------- settings UI ----------
+  function openSettings() {
+    settingsEl.classList.add("open");
+    if (cfg) {
+      byId("f_apiKey").value = cfg.apiKey || "";
+      byId("f_sheetId").value = cfg.sheetId || "";
+      byId("f_tab").value = cfg.tab || "";
+      byId("f_interval").value = cfg.interval || 5;
+      byId("f_title").value = cfg.title || "실시간 응답";
+      if (cfg.column) {
+        var sel = byId("f_column");
+        sel.innerHTML = '<option value="' + escAttr(cfg.column) + '" selected>' +
+          escHtml(cfg.column) + "</option>";
+      }
+    }
+  }
+  function closeSettings() { settingsEl.classList.remove("open"); }
+  function byId(id) { return document.getElementById(id); }
+
+  function readForm() {
+    return {
+      apiKey: byId("f_apiKey").value.trim(),
+      sheetId: byId("f_sheetId").value.trim(),
+      tab: byId("f_tab").value.trim(),
+      interval: Math.max(2, parseInt(byId("f_interval").value, 10) || 5),
+      column: byId("f_column").value,
+      title: byId("f_title").value.trim() || "실시간 응답"
+    };
+  }
+
+  function loadColumns() {
+    formErr.textContent = "";
+    var c = readForm();
+    if (!c.apiKey || !c.sheetId) {
+      formErr.textContent = "API 키와 스프레드시트 ID를 먼저 입력하세요.";
+      return;
+    }
+    byId("btnLoadCols").textContent = "불러오는 중…";
+    fetchValues(c).then(function (rows) {
+      byId("btnLoadCols").textContent = "열 불러오기";
+      if (!rows.length) { formErr.textContent = "시트에 데이터가 없습니다."; return; }
+      var headers = rows[0];
+      var sel = byId("f_column");
+      sel.innerHTML = "";
+      headers.forEach(function (h) {
+        var name = (h || "").trim();
+        if (!name) return;
+        var o = document.createElement("option");
+        o.value = name; o.textContent = name;
+        if (cfg && cfg.column === name) o.selected = true;
+        sel.appendChild(o);
+      });
+      formErr.textContent = "✓ " + headers.length + "개 열을 찾았습니다. 질문을 고르세요.";
+    }).catch(function (e) {
+      byId("btnLoadCols").textContent = "열 불러오기";
+      formErr.textContent = "오류: " + e.message;
+    });
+  }
+
+  function save() {
+    formErr.textContent = "";
+    var c = readForm();
+    if (!c.apiKey || !c.sheetId) { formErr.textContent = "API 키와 시트 ID는 필수입니다."; return; }
+    if (!c.column) { formErr.textContent = "띄울 질문(열)을 선택하세요. 없으면 '열 불러오기'를 누르세요."; return; }
+    cfg = c;
+    saveConfig(cfg);
+    closeSettings();
+    restart();
+  }
+
+  // ---------- polling loop ----------
+  function restart() {
+    if (timer) { clearInterval(timer); timer = null; }
+    seenRowCount = 0;
+    initialized = false;
+    bubbles = [];
+    stage.innerHTML = "";
+    hudCount.textContent = "0";
+    if (!cfg) { setStatus("idle", "설정이 필요합니다"); emptyEl.classList.remove("hidden"); return; }
+    hudTitle.textContent = cfg.title || "실시간 응답";
+    emptyEl.classList.add("hidden");
+    setStatus("connecting", "연결 중…");
+    poll();
+    timer = setInterval(poll, cfg.interval * 1000);
+  }
+
+  function poll() {
+    if (!cfg) return;
+    fetchValues(cfg).then(function (rows) {
+      setStatus("live", "실시간 연결됨 · " + cfg.interval + "초 간격");
+      if (!rows.length) return;
+      var headers = rows[0];
+      var colIdx = headers.indexOf(cfg.column);
+      if (colIdx === -1) {
+        setStatus("error", "'" + cfg.column + "' 열을 찾을 수 없습니다");
+        return;
+      }
+      var dataRows = rows.slice(1);
+
+      if (!initialized) {
+        // first load: float ALL existing answers onto the screen
+        initialized = true;
+        seenRowCount = dataRows.length;
+        var shown = 0;
+        dataRows.forEach(function (row) {
+          var text = (row[colIdx] || "").trim();
+          if (text) { (function (t, d) {
+            setTimeout(function () { spawnBubble(t); }, d);
+          })(text, shown++ * 120); }
+        });
+        return;
+      }
+      if (dataRows.length > seenRowCount) {
+        var fresh = dataRows.slice(seenRowCount);
+        seenRowCount = dataRows.length;
+        fresh.forEach(function (row, i) {
+          var text = (row[colIdx] || "").trim();
+          if (text) setTimeout(function () { spawnBubble(text); }, i * 400);
+        });
+      }
+    }).catch(function (e) {
+      setStatus("error", "오류: " + e.message);
+    });
+  }
+
+  function setStatus(state, text) {
+    statusEl.className = state;
+    statusText.textContent = text;
+  }
+
+  // ---------- bubble rendering ----------
+  var PALETTE = [
+    "linear-gradient(135deg, rgba(129,140,248,.35), rgba(99,102,241,.25))",
+    "linear-gradient(135deg, rgba(244,114,182,.35), rgba(219,39,119,.25))",
+    "linear-gradient(135deg, rgba(52,211,153,.35), rgba(16,185,129,.25))",
+    "linear-gradient(135deg, rgba(251,191,36,.35), rgba(245,158,11,.25))",
+    "linear-gradient(135deg, rgba(56,189,248,.35), rgba(14,165,233,.25))"
+  ];
+
+  function spawnBubble(text) {
+    var b = document.createElement("div");
+    b.className = "bubble";
+    b.textContent = text;
+    b.style.background = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+    b.style.visibility = "hidden";
+    stage.appendChild(b);
+
+    var w = b.offsetWidth, h = b.offsetHeight;
+    var W = stage.clientWidth, H = stage.clientHeight;
+    var x = Math.random() * Math.max(1, W - w);
+    var y = Math.random() * Math.max(1, H - h);
+    var speed = 0.25 + Math.random() * 0.55;       // px per frame (gentle)
+    var ang = Math.random() * Math.PI * 2;
+    var obj = {
+      el: b, x: x, y: y,
+      vx: Math.cos(ang) * speed,
+      vy: Math.sin(ang) * speed,
+      w: w, h: h
+    };
+    b.style.visibility = "";
+    b.style.transform = "translate3d(" + x + "px," + y + "px,0) scale(0.6)";
+    bubbles.push(obj);
+
+    // fade + pop in, then the physics loop drives the transform
+    requestAnimationFrame(function () {
+      b.classList.add("show");
+      b.style.transform = "translate3d(" + x + "px," + y + "px,0) scale(1)";
+    });
+
+    hudCount.textContent = String(bubbles.length);
+    if (!rafRunning) { rafRunning = true; requestAnimationFrame(tick); }
+  }
+
+  function tick() {
+    var W = stage.clientWidth, H = stage.clientHeight;
+    for (var i = 0; i < bubbles.length; i++) {
+      var o = bubbles[i];
+      o.x += o.vx;
+      o.y += o.vy;
+      if (o.x <= 0) { o.x = 0; o.vx = Math.abs(o.vx); }
+      else if (o.x >= W - o.w) { o.x = Math.max(0, W - o.w); o.vx = -Math.abs(o.vx); }
+      if (o.y <= 0) { o.y = 0; o.vy = Math.abs(o.vy); }
+      else if (o.y >= H - o.h) { o.y = Math.max(0, H - o.h); o.vy = -Math.abs(o.vy); }
+      o.el.style.transform = "translate3d(" + o.x + "px," + o.y + "px,0) scale(1)";
+    }
+    if (bubbles.length) { requestAnimationFrame(tick); }
+    else { rafRunning = false; }
+  }
+
+  // keep bubble sizes/bounds correct when the window changes
+  window.addEventListener("resize", function () {
+    var W = stage.clientWidth, H = stage.clientHeight;
+    bubbles.forEach(function (o) {
+      o.w = o.el.offsetWidth;
+      o.h = o.el.offsetHeight;
+      if (o.x > W - o.w) o.x = Math.max(0, W - o.w);
+      if (o.y > H - o.h) o.y = Math.max(0, H - o.h);
+    });
+  });
+
+  // ---------- utils ----------
+  function escHtml(s) { return (s || "").replace(/[&<>]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
+  function escAttr(s) { return escHtml(s).replace(/"/g, "&quot;"); }
+
+  // ---------- wire up ----------
+  byId("gear").addEventListener("click", openSettings);
+  byId("btnLoadCols").addEventListener("click", loadColumns);
+  byId("btnSave").addEventListener("click", save);
+  settingsEl.addEventListener("click", function (e) {
+    if (e.target === settingsEl) closeSettings();
+  });
+  // demo bubble on double-click of stage (for testing layout without data)
+  stage.addEventListener("dblclick", function () {
+    spawnBubble("테스트 응답입니다 🫧");
+  });
+
+  // ---------- boot ----------
+  if (cfg) { restart(); }
+  else { openSettings(); setStatus("idle", "설정이 필요합니다"); }
+})();
+</script>

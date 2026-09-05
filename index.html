@@ -1,300 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>실시간 응답 버블 · Google Form Live Bubbles</title>
+<title>불안, 그리고 위로</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --bg-1: #0f172a;
-    --bg-2: #1e1b4b;
-    --bg-3: #312e81;
-    --text: #f8fafc;
-    --muted: #94a3b8;
-    --accent: #818cf8;
-    --panel: rgba(15, 23, 42, 0.92);
-    --border: rgba(148, 163, 184, 0.25);
+    --spd: 1;
+    --scale: 1;
+    --panel: #151b29;
+    --panel-2: #1c2334;
+    --border: rgba(200,212,240,.16);
+    --ink: #e7ecf6;
+    --muted: #8e97af;
+    --gold: #f2b23a;
+    --gold-soft: #ffd479;
   }
-
-  * { box-sizing: border-box; }
-
-  html, body {
-    margin: 0;
-    height: 100%;
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
     overflow: hidden;
-    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    background: #0a0e1a;
+    font-family: "Noto Sans KR", -apple-system, BlinkMacSystemFont,
       "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-    color: var(--text);
-    background: radial-gradient(circle at 20% 20%, var(--bg-3), transparent 55%),
-      radial-gradient(circle at 80% 80%, var(--bg-2), transparent 55%),
-      linear-gradient(135deg, var(--bg-1), #020617);
+    color: var(--ink);
   }
 
-  /* ===== Stage (floating area) ===== */
-  #stage {
-    position: fixed;
-    inset: 0;
-    overflow: hidden;
+  .stage { position: relative; width: 100%; height: 100vh; overflow: hidden; }
+
+  /* ── halves ── */
+  .half { position: absolute; left: 0; right: 0; height: 50%; overflow: hidden; }
+  .top    { top: 0; background: radial-gradient(120% 100% at 30% 0%, #1b2340 0%, #131a2e 45%, #0d1220 100%); }
+  .bottom { bottom: 0; background: radial-gradient(120% 110% at 70% 100%, #1a1a23 0%, #121319 50%, #0a0b10 100%); }
+  .top::after, .bottom::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+  .top::after    { background: linear-gradient(180deg, rgba(10,14,26,0) 55%, rgba(10,14,26,.85) 100%); }
+  .bottom::after { background: linear-gradient(0deg,   rgba(10,11,16,0) 60%, rgba(10,11,16,.7) 100%); }
+
+  /* ── divider ── */
+  .divider {
+    position: absolute; left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-.5px);
+    background: linear-gradient(90deg, rgba(242,178,58,0) 0%, rgba(242,178,58,.75) 18%,
+      rgba(242,178,58,.95) 50%, rgba(242,178,58,.75) 82%, rgba(242,178,58,0) 100%);
+    box-shadow: 0 0 24px rgba(242,178,58,.45); z-index: 4;
   }
 
-  .bubble {
-    position: absolute;
-    top: 0;
-    left: 0;
-    max-width: min(32vw, 380px);
-    padding: 14px 20px;
-    border-radius: 24px;
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
-    color: #fff;
-    font-size: clamp(15px, 1.9vw, 26px);
-    line-height: 1.4;
-    font-weight: 600;
-    word-break: break-word;
-    white-space: pre-wrap;
-    will-change: transform;
-    opacity: 0;
-    transform: scale(0.6);
-    transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  }
-  .bubble.show { opacity: 1; }
+  /* ── labels ── */
+  .label { position: absolute; display: flex; align-items: center; gap: 12px; z-index: 3; }
+  .label .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .label .txt { font-size: 15px; font-weight: 700; letter-spacing: .14em; }
+  .label.top { left: 44px; top: 38px; }
+  .label.bottom { left: 44px; bottom: 38px; }
+  .label.top .dot { background: #7f8db3; } .label.top .txt { color: #8e9bbd; }
+  .label.bottom .dot { background: var(--gold); } .label.bottom .txt { color: var(--gold); }
 
-  /* ===== Header / counter ===== */
-  #hud {
-    position: fixed;
-    top: 18px;
-    left: 22px;
-    z-index: 20;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    pointer-events: none;
+  /* ── floating words ── */
+  .w {
+    position: absolute; white-space: nowrap; will-change: transform, opacity;
+    opacity: 0; transition: opacity 1.1s ease;
   }
-  #hud .title {
-    font-size: 20px;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-  }
-  #hud .count {
-    background: rgba(129, 140, 248, 0.2);
-    border: 1px solid var(--accent);
-    color: #c7d2fe;
-    padding: 4px 12px;
-    border-radius: 999px;
-    font-size: 14px;
-    font-weight: 700;
-  }
-  #status {
-    position: fixed;
-    bottom: 16px;
-    left: 22px;
-    z-index: 20;
-    font-size: 13px;
-    color: var(--muted);
-    pointer-events: none;
-  }
-  #status .dot {
-    display: inline-block;
-    width: 9px; height: 9px;
-    border-radius: 50%;
-    background: #64748b;
-    margin-right: 6px;
-    vertical-align: middle;
-  }
-  #status.live .dot { background: #22c55e; box-shadow: 0 0 10px #22c55e; }
-  #status.error .dot { background: #ef4444; box-shadow: 0 0 10px #ef4444; }
+  .w.show { opacity: var(--vis, .9); }
+  .s-xl { font-size: calc(46px * var(--scale)); } .s-l { font-size: calc(36px * var(--scale)); }
+  .s-m  { font-size: calc(30px * var(--scale)); } .s-s { font-size: calc(24px * var(--scale)); }
+  .s-xs { font-size: calc(20px * var(--scale)); }
 
-  /* ===== Gear button ===== */
+  @keyframes d1 { 0%,100%{transform:translate(0,0) rotate(0)} 25%{transform:translate(14px,-18px) rotate(1deg)}
+    50%{transform:translate(-10px,10px) rotate(-1deg)} 75%{transform:translate(8px,16px) rotate(.5deg)} }
+  @keyframes d2 { 0%,100%{transform:translate(0,0)} 33%{transform:translate(-16px,12px)} 66%{transform:translate(12px,-14px)} }
+  @keyframes d3 { 0%,100%{transform:translate(0,0) rotate(0)} 20%{transform:translate(10px,14px) rotate(-1deg)}
+    50%{transform:translate(-14px,-8px) rotate(1deg)} 80%{transform:translate(6px,-12px) rotate(0)} }
+
+  @media (max-width: 680px) {
+    .s-xl{font-size:calc(30px * var(--scale))} .s-l{font-size:calc(25px * var(--scale))}
+    .s-m{font-size:calc(21px * var(--scale))} .s-s{font-size:calc(18px * var(--scale))}
+    .s-xs{font-size:calc(16px * var(--scale))}
+    .label.top{top:22px;left:22px} .label.bottom{bottom:22px;left:22px}
+  }
+  @media (prefers-reduced-motion: reduce) { .w { animation: none !important; } }
+
+  /* ── gear + status ── */
   #gear {
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    z-index: 30;
-    width: 44px; height: 44px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--panel);
-    color: var(--text);
-    font-size: 20px;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: transform 0.2s;
+    position: fixed; top: 16px; right: 16px; z-index: 30; width: 44px; height: 44px;
+    border-radius: 50%; border: 1px solid var(--border); background: var(--panel);
+    color: var(--ink); font-size: 19px; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; box-shadow: 0 2px 12px rgba(0,0,0,.35);
+    transition: transform .25s;
   }
   #gear:hover { transform: rotate(45deg); }
-
-  /* ===== Settings panel ===== */
-  #settings {
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    background: rgba(2, 6, 23, 0.7);
-    backdrop-filter: blur(4px);
+  #status {
+    position: fixed; bottom: 16px; right: 20px; z-index: 20; font-size: 12.5px;
+    color: var(--muted); background: rgba(21,27,41,.7); padding: 5px 12px;
+    border-radius: 999px; border: 1px solid var(--border);
   }
+  #status .d { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #5c657d; margin-right: 6px; vertical-align: middle; }
+  #status.live .d  { background: #5ec27f; box-shadow: 0 0 8px #5ec27f; }
+  #status.error .d { background: #e0705a; box-shadow: 0 0 8px #e0705a; }
+
+  /* ── settings panel ── */
+  #settings { position: fixed; inset: 0; z-index: 40; display: none; align-items: center;
+    justify-content: center; background: rgba(4,7,14,.66); backdrop-filter: blur(3px); }
   #settings.open { display: flex; }
-  .panel {
-    width: min(560px, 92vw);
-    max-height: 90vh;
-    overflow-y: auto;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 28px;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
-  }
-  .panel h2 { margin: 0 0 4px; font-size: 22px; }
-  .panel p.sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
-  .field { margin-bottom: 16px; }
-  .field label {
-    display: block;
-    font-size: 13px;
-    font-weight: 700;
-    margin-bottom: 6px;
-    color: #cbd5e1;
-  }
-  .field .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+  .panel { width: min(560px, 92vw); max-height: 90vh; overflow-y: auto; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 18px; padding: 26px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.6); }
+  .panel h2 { font-size: 21px; margin-bottom: 4px; }
+  .panel .sub { color: var(--muted); font-size: 13.5px; margin-bottom: 18px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12.5px; font-weight: 700; margin-bottom: 6px; color: #c3cbde; }
+  .field .hint { font-weight: 400; color: var(--muted); }
   .field input, .field select {
-    width: 100%;
-    padding: 11px 13px;
-    border-radius: 12px;
-    border: 1px solid var(--border);
-    background: rgba(15, 23, 42, 0.6);
-    color: var(--text);
-    font-size: 14px;
-    font-family: inherit;
+    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: #0f1522; color: var(--ink); font-size: 14px; font-family: inherit;
   }
-  .field input:focus, .field select:focus { outline: 2px solid var(--accent); }
-  .row { display: flex; gap: 12px; }
-  .row .field { flex: 1; }
-  .actions { display: flex; gap: 10px; margin-top: 12px; }
-  button.primary {
-    flex: 1;
-    padding: 12px;
-    border-radius: 12px;
-    border: none;
-    background: var(--accent);
-    color: #0b1120;
-    font-weight: 800;
-    font-size: 15px;
-    cursor: pointer;
+  .field input:focus, .field select:focus { outline: 2px solid var(--gold); }
+  .row { display: flex; gap: 12px; } .row .field { flex: 1; }
+  .slider { display: flex; align-items: center; gap: 10px; }
+  .slider input[type=range] {
+    flex: 1; -webkit-appearance: none; appearance: none; height: 4px; padding: 0;
+    border: none; border-radius: 999px; background: rgba(200,212,240,.22); cursor: pointer;
   }
-  button.ghost {
-    padding: 12px 16px;
-    border-radius: 12px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text);
-    font-weight: 600;
-    cursor: pointer;
+  .slider input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--gold); border: none; cursor: pointer;
   }
-  .guide {
-    margin-top: 20px;
-    padding: 16px;
-    border-radius: 12px;
-    background: rgba(129, 140, 248, 0.08);
-    border: 1px solid rgba(129, 140, 248, 0.25);
-    font-size: 13px;
-    line-height: 1.7;
-    color: #cbd5e1;
+  .slider input[type=range]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%; background: var(--gold); border: none; cursor: pointer;
   }
-  .guide b { color: #e0e7ff; }
-  .guide ol { margin: 8px 0 0; padding-left: 20px; }
-  .guide code {
-    background: rgba(0,0,0,0.35);
-    padding: 1px 6px;
-    border-radius: 5px;
-    font-size: 12px;
+  .slider input[type=range]:focus { outline: 2px solid var(--gold); outline-offset: 4px; }
+  .slider output {
+    min-width: 46px; text-align: right; font-size: 13px; font-weight: 700;
+    color: var(--gold); font-variant-numeric: tabular-nums;
   }
-  .err { color: #fca5a5; font-size: 13px; margin-top: 8px; min-height: 18px; }
-
-  /* Empty state */
-  #empty {
-    position: fixed;
-    inset: 0;
-    z-index: 10;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    color: var(--muted);
-    padding: 20px;
-  }
-  #empty h1 { color: var(--text); font-size: 28px; margin: 0 0 8px; }
-  #empty.hidden { display: none; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .split .box { border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+  .split .box.top-box { background: rgba(60,74,112,.16); }
+  .split .box.bot-box { background: rgba(242,178,58,.10); }
+  .split .box h4 { font-size: 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 7px; color: #cdd4e6; }
+  .split .box h4 .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .top-box h4 .dot { background: #7f8db3; } .bot-box h4 .dot { background: var(--gold); }
+  .actions { display: flex; gap: 10px; margin-top: 16px; }
+  button.primary { flex: 1; padding: 12px; border-radius: 11px; border: none; background: var(--gold);
+    color: #211703; font-weight: 800; font-size: 15px; cursor: pointer; }
+  button.primary:hover { background: var(--gold-soft); }
+  button.ghost { padding: 12px 16px; border-radius: 11px; border: 1px solid var(--border);
+    background: transparent; color: var(--ink); font-weight: 600; cursor: pointer; }
+  .guide { margin-top: 18px; padding: 14px 16px; border-radius: 12px; background: rgba(242,178,58,.07);
+    border: 1px solid rgba(242,178,58,.22); font-size: 12.5px; line-height: 1.7; color: #b7bdcf; }
+  .guide b { color: var(--ink); }
+  .guide code { background: rgba(255,255,255,.08); padding: 1px 5px; border-radius: 5px; font-size: 11.5px; }
+  .err { color: #f0a08c; font-size: 12.5px; margin-top: 8px; min-height: 16px; }
 </style>
-
-<div id="stage"></div>
-
-<div id="hud">
-  <span class="title" id="hudTitle">실시간 응답</span>
-  <span class="count" id="hudCount">0</span>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="half top" id="halfTop">
+    <div class="label top"><span class="dot"></span><span class="txt" id="labelTop">나를 불안하게 하는 말</span></div>
+  </div>
+  <div class="divider"></div>
+  <div class="half bottom" id="halfBottom">
+    <div class="label bottom"><span class="dot"></span><span class="txt" id="labelBottom">그런 나에게 하고 싶은 위로</span></div>
+  </div>
 </div>
-
-<div id="status"><span class="dot"></span><span id="statusText">설정이 필요합니다</span></div>
 
 <button id="gear" title="설정">⚙️</button>
-
-<div id="empty">
-  <h1>🫧 실시간 응답 버블</h1>
-  <p>구글폼 응답을 실시간으로 화면에 띄웁니다.<br />오른쪽 위 ⚙️ 를 눌러 시트를 연결하세요.</p>
-</div>
+<div id="status"><span class="d"></span><span id="statusText">설정이 필요합니다</span></div>
 
 <div id="settings">
   <div class="panel">
-    <h2>⚙️ 연결 설정</h2>
-    <p class="sub">Google Sheets API로 응답 시트를 주기적으로 읽어옵니다.</p>
+    <h2>연결 설정</h2>
+    <p class="sub">위·아래 화면에 각각 다른 구글시트 열의 응답이 떠다닙니다.</p>
 
     <div class="field">
-      <label>Google API 키 <span class="hint">(Sheets API 사용 설정된 키)</span></label>
+      <label>Google API 키 <span class="hint">(Sheets API 키)</span></label>
       <input id="f_apiKey" type="text" placeholder="AIza..." autocomplete="off" />
     </div>
-
     <div class="field">
-      <label>스프레드시트 ID <span class="hint">(시트 URL 의 /d/ 와 /edit 사이 값)</span></label>
+      <label>스프레드시트 ID <span class="hint">(시트 URL 의 /d/ 와 /edit 사이)</span></label>
       <input id="f_sheetId" type="text" placeholder="1AbC...xyz" autocomplete="off" />
+    </div>
+    <div class="row">
+      <div class="field"><label>탭(시트) 이름</label><input id="f_tab" type="text" placeholder="설문지 응답 시트1" /></div>
+      <div class="field"><label>폴링 간격(초)</label><input id="f_interval" type="number" min="2" value="5" /></div>
     </div>
 
     <div class="row">
       <div class="field">
-        <label>탭(시트) 이름</label>
-        <input id="f_tab" type="text" placeholder="설문지 응답 시트1" />
+        <label>화면당 단어 개수 <span class="hint">(위/아래 각각)</span></label>
+        <div class="slider">
+          <input id="f_maxWords" type="range" min="4" max="40" step="1" value="16" />
+          <output id="o_maxWords">16</output>
+        </div>
       </div>
       <div class="field">
-        <label>폴링 간격(초)</label>
-        <input id="f_interval" type="number" min="2" value="5" />
+        <label>글자 크기 <span class="hint">(전체 배율)</span></label>
+        <div class="slider">
+          <input id="f_fontScale" type="range" min="0.6" max="2" step="0.05" value="1" />
+          <output id="o_fontScale">1.00×</output>
+        </div>
       </div>
     </div>
 
-    <div class="field">
-      <label>띄울 질문(열) 선택
-        <span class="hint">— 연결하면 목록이 채워집니다</span></label>
-      <select id="f_column"><option value="">먼저 위 정보를 입력하고 "열 불러오기"</option></select>
-    </div>
-
-    <div class="field">
-      <label>화면 상단 제목</label>
-      <input id="f_title" type="text" placeholder="실시간 응답" />
+    <div class="split">
+      <div class="box top-box">
+        <h4><span class="dot"></span> 위쪽 (불안)</h4>
+        <div class="field" style="margin:0 0 8px">
+          <label>표시할 열</label>
+          <select id="f_topCol"><option value="">열 불러오기 필요</option></select>
+        </div>
+        <div class="field" style="margin:0">
+          <label>라벨</label>
+          <input id="f_topLabel" type="text" value="나를 불안하게 하는 말" />
+        </div>
+      </div>
+      <div class="box bot-box">
+        <h4><span class="dot"></span> 아래쪽 (위로)</h4>
+        <div class="field" style="margin:0 0 8px">
+          <label>표시할 열</label>
+          <select id="f_botCol"><option value="">열 불러오기 필요</option></select>
+        </div>
+        <div class="field" style="margin:0">
+          <label>라벨</label>
+          <input id="f_botLabel" type="text" value="그런 나에게 하고 싶은 위로" />
+        </div>
+      </div>
     </div>
 
     <div class="err" id="formErr"></div>
-
     <div class="actions">
       <button class="ghost" id="btnLoadCols">열 불러오기</button>
       <button class="primary" id="btnSave">저장하고 시작</button>
     </div>
 
     <div class="guide">
-      <b>처음이신가요? 설정 방법</b>
-      <ol>
-        <li>구글폼 → <b>응답</b> 탭 → 시트 아이콘으로 <b>스프레드시트 연결</b></li>
-        <li>그 시트 → <b>공유</b> → <b>링크가 있는 모든 사용자 = 뷰어</b></li>
-        <li><code>console.cloud.google.com</code> → 프로젝트 생성 → <b>Google Sheets API</b> 사용 설정</li>
-        <li><b>사용자 인증 정보 → API 키 만들기</b> → 키 복사 (HTTP 리퍼러 제한 권장)</li>
-        <li>위 칸을 채우고 <b>열 불러오기 → 질문 선택 → 저장</b></li>
-      </ol>
+      <b>설정 순서</b> — ① 구글폼 응답을 시트에 연결하고 <b>공유 → 링크가 있는 모든 사용자(뷰어)</b>로
+      설정 ② <code>console.cloud.google.com</code> 에서 <b>Google Sheets API</b> 사용 설정 후
+      <b>API 키</b> 발급 ③ 위 칸을 채우고 <b>열 불러오기 → 위/아래 열 선택 → 저장</b>.
+      두 질문(예: “요즘 불안한 점”, “스스로에게 하고 싶은 말”)을 각각 위/아래 열로 지정하세요.
     </div>
   </div>
 </div>
@@ -302,134 +246,94 @@
 <script>
 (function () {
   "use strict";
+  var LS = "floating_words_cfg_v1";
+  var byId = function (id) { return document.getElementById(id); };
+  var halfTop = byId("halfTop"), halfBottom = byId("halfBottom");
+  var statusEl = byId("status"), statusText = byId("statusText"), formErr = byId("formErr");
 
-  var LS_KEY = "gform_bubbles_config_v1";
-  var stage = document.getElementById("stage");
-  var statusEl = document.getElementById("status");
-  var statusText = document.getElementById("statusText");
-  var hudCount = document.getElementById("hudCount");
-  var hudTitle = document.getElementById("hudTitle");
-  var emptyEl = document.getElementById("empty");
-  var settingsEl = document.getElementById("settings");
-  var formErr = document.getElementById("formErr");
+  var cfg = load();
+  var timer = null, seen = 0, initialized = false;
+  var pools = { top: [], bottom: [] };
+  var MAX_PER_HALF = 16;   // overridden by cfg.maxWords
+  var DEFAULTS = { maxWords: 16, fontScale: 1 };
 
-  var cfg = loadConfig();
-  var timer = null;
-  var seenRowCount = 0;       // rows already turned into bubbles
-  var initialized = false;    // did we do the first fetch?
-  var bubbles = [];           // persistent floating bubbles {el,x,y,vx,vy,w,h}
-  var rafRunning = false;
+  var PALETTE = {
+    top: ["#dfe6f6","#c9d2e8","#b9c3dd","#aab5d2","#98a4c4","#8d99b9","#828fb0","#7f8caf","#7b88ab"],
+    bottom: ["#ffd479","#f2b23a","#f6e0b0","#e8c98d","#d8c6a4","#cdbb99","#c2b291","#bfae8d"]
+  };
+  var TIERS = ["s-xs","s-xs","s-xs","s-s","s-s","s-s","s-m","s-m","s-l","s-xl"];
+  var WEIGHT = { "s-xs": 400, "s-s": 400, "s-m": 700, "s-l": 900, "s-xl": 900 };
+  var DRIFT = ["d1","d2","d3"];
 
-  // ---------- config helpers ----------
-  function loadConfig() {
-    try { return JSON.parse(localStorage.getItem(LS_KEY)) || null; }
-    catch (e) { return null; }
-  }
-  function saveConfig(c) { localStorage.setItem(LS_KEY, JSON.stringify(c)); }
+  function load() { try { return JSON.parse(localStorage.getItem(LS)) || null; } catch (e) { return null; } }
+  function save(c) { localStorage.setItem(LS, JSON.stringify(c)); }
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
-  // ---------- Sheets API ----------
-  function valuesUrl(id, range, key) {
-    return "https://sheets.googleapis.com/v4/spreadsheets/" +
-      encodeURIComponent(id) + "/values/" + encodeURIComponent(range) +
-      "?key=" + encodeURIComponent(key) +
+  function apiUrl(id, range, key) {
+    return "https://sheets.googleapis.com/v4/spreadsheets/" + encodeURIComponent(id) +
+      "/values/" + encodeURIComponent(range) + "?key=" + encodeURIComponent(key) +
       "&majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE";
   }
-
   function fetchValues(c) {
-    var range = c.tab ? (c.tab) : "A:ZZ";
-    return fetch(valuesUrl(c.sheetId, range, c.apiKey))
-      .then(function (r) {
-        return r.json().then(function (body) {
-          if (!r.ok) {
-            var msg = (body && body.error && body.error.message) || ("HTTP " + r.status);
-            throw new Error(msg);
-          }
-          return body.values || [];
-        });
+    var range = c.tab ? c.tab : "A:ZZ";
+    return fetch(apiUrl(c.sheetId, range, c.apiKey)).then(function (r) {
+      return r.json().then(function (body) {
+        if (!r.ok) throw new Error((body && body.error && body.error.message) || ("HTTP " + r.status));
+        return body.values || [];
       });
-  }
-
-  // ---------- settings UI ----------
-  function openSettings() {
-    settingsEl.classList.add("open");
-    if (cfg) {
-      byId("f_apiKey").value = cfg.apiKey || "";
-      byId("f_sheetId").value = cfg.sheetId || "";
-      byId("f_tab").value = cfg.tab || "";
-      byId("f_interval").value = cfg.interval || 5;
-      byId("f_title").value = cfg.title || "실시간 응답";
-      if (cfg.column) {
-        var sel = byId("f_column");
-        sel.innerHTML = '<option value="' + escAttr(cfg.column) + '" selected>' +
-          escHtml(cfg.column) + "</option>";
-      }
-    }
-  }
-  function closeSettings() { settingsEl.classList.remove("open"); }
-  function byId(id) { return document.getElementById(id); }
-
-  function readForm() {
-    return {
-      apiKey: byId("f_apiKey").value.trim(),
-      sheetId: byId("f_sheetId").value.trim(),
-      tab: byId("f_tab").value.trim(),
-      interval: Math.max(2, parseInt(byId("f_interval").value, 10) || 5),
-      column: byId("f_column").value,
-      title: byId("f_title").value.trim() || "실시간 응답"
-    };
-  }
-
-  function loadColumns() {
-    formErr.textContent = "";
-    var c = readForm();
-    if (!c.apiKey || !c.sheetId) {
-      formErr.textContent = "API 키와 스프레드시트 ID를 먼저 입력하세요.";
-      return;
-    }
-    byId("btnLoadCols").textContent = "불러오는 중…";
-    fetchValues(c).then(function (rows) {
-      byId("btnLoadCols").textContent = "열 불러오기";
-      if (!rows.length) { formErr.textContent = "시트에 데이터가 없습니다."; return; }
-      var headers = rows[0];
-      var sel = byId("f_column");
-      sel.innerHTML = "";
-      headers.forEach(function (h) {
-        var name = (h || "").trim();
-        if (!name) return;
-        var o = document.createElement("option");
-        o.value = name; o.textContent = name;
-        if (cfg && cfg.column === name) o.selected = true;
-        sel.appendChild(o);
-      });
-      formErr.textContent = "✓ " + headers.length + "개 열을 찾았습니다. 질문을 고르세요.";
-    }).catch(function (e) {
-      byId("btnLoadCols").textContent = "열 불러오기";
-      formErr.textContent = "오류: " + e.message;
     });
   }
 
-  function save() {
-    formErr.textContent = "";
-    var c = readForm();
-    if (!c.apiKey || !c.sheetId) { formErr.textContent = "API 키와 시트 ID는 필수입니다."; return; }
-    if (!c.column) { formErr.textContent = "띄울 질문(열)을 선택하세요. 없으면 '열 불러오기'를 누르세요."; return; }
-    cfg = c;
-    saveConfig(cfg);
-    closeSettings();
-    restart();
+  function spawnWord(which, text) {
+    var half = which === "top" ? halfTop : halfBottom;
+    var el = document.createElement("span");
+    var tier = pick(TIERS);
+    el.className = "w " + tier;
+    el.textContent = text;
+    el.style.left = rand(3, 78) + "%";
+    el.style.top = rand(10, 80) + "%";
+    el.style.fontWeight = WEIGHT[tier];
+    el.style.color = pick(PALETTE[which]);
+    el.style.setProperty("--vis", (which === "top" ? rand(0.55, 0.95) : rand(0.7, 1)).toFixed(2));
+    var drift = pick(DRIFT), dd = rand(18, 30).toFixed(1);
+    el.style.animation = drift + " calc(var(--spd)*" + dd + "s) ease-in-out infinite";
+    half.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add("show"); });
+
+    var pool = pools[which];
+    pool.push(el);
+    if (pool.length > MAX_PER_HALF) {
+      var old = pool.shift(); old.classList.remove("show");
+      setTimeout(function () { old.remove(); }, 1200);
+    }
   }
 
-  // ---------- polling loop ----------
+  function clearWords() {
+    ["top", "bottom"].forEach(function (k) { pools[k].forEach(function (e) { e.remove(); }); pools[k] = []; });
+  }
+
+  // apply display settings that don't require a reconnect
+  function applyDisplay(c) {
+    var scale = (c && c.fontScale) || DEFAULTS.fontScale;
+    document.documentElement.style.setProperty("--scale", scale);
+    MAX_PER_HALF = (c && c.maxWords) || DEFAULTS.maxWords;
+    // trim immediately if the cap was lowered
+    ["top", "bottom"].forEach(function (k) {
+      while (pools[k].length > MAX_PER_HALF) {
+        var old = pools[k].shift(); old.classList.remove("show");
+        (function (n) { setTimeout(function () { n.remove(); }, 1200); })(old);
+      }
+    });
+  }
+
   function restart() {
     if (timer) { clearInterval(timer); timer = null; }
-    seenRowCount = 0;
-    initialized = false;
-    bubbles = [];
-    stage.innerHTML = "";
-    hudCount.textContent = "0";
-    if (!cfg) { setStatus("idle", "설정이 필요합니다"); emptyEl.classList.remove("hidden"); return; }
-    hudTitle.textContent = cfg.title || "실시간 응답";
-    emptyEl.classList.add("hidden");
+    seen = 0; initialized = false; clearWords();
+    applyDisplay(cfg);
+    byId("labelTop").textContent = (cfg && cfg.topLabel) || "나를 불안하게 하는 말";
+    byId("labelBottom").textContent = (cfg && cfg.botLabel) || "그런 나에게 하고 싶은 위로";
+    if (!cfg) { setStatus("idle", "설정이 필요합니다"); return; }
     setStatus("connecting", "연결 중…");
     poll();
     timer = setInterval(poll, cfg.interval * 1000);
@@ -438,136 +342,117 @@
   function poll() {
     if (!cfg) return;
     fetchValues(cfg).then(function (rows) {
-      setStatus("live", "실시간 연결됨 · " + cfg.interval + "초 간격");
+      setStatus("live", "실시간 연결됨 · " + cfg.interval + "초");
       if (!rows.length) return;
       var headers = rows[0];
-      var colIdx = headers.indexOf(cfg.column);
-      if (colIdx === -1) {
-        setStatus("error", "'" + cfg.column + "' 열을 찾을 수 없습니다");
-        return;
+      var ti = headers.indexOf(cfg.topCol), bi = headers.indexOf(cfg.botCol);
+      if (ti === -1 && bi === -1) { setStatus("error", "지정한 열을 찾을 수 없습니다"); return; }
+      var data = rows.slice(1);
+
+      function emit(row, delay) {
+        if (ti !== -1) { var t = (row[ti] || "").trim(); if (t) setTimeout(function () { spawnWord("top", t); }, delay); }
+        if (bi !== -1) { var b = (row[bi] || "").trim(); if (b) setTimeout(function () { spawnWord("bottom", b); }, delay + 200); }
       }
-      var dataRows = rows.slice(1);
 
       if (!initialized) {
-        // first load: float ALL existing answers onto the screen
         initialized = true;
-        seenRowCount = dataRows.length;
-        var shown = 0;
-        dataRows.forEach(function (row) {
-          var text = (row[colIdx] || "").trim();
-          if (text) { (function (t, d) {
-            setTimeout(function () { spawnBubble(t); }, d);
-          })(text, shown++ * 120); }
-        });
+        var recent = data.slice(Math.max(0, data.length - MAX_PER_HALF));
+        recent.forEach(function (row, i) { emit(row, i * 250); });
+        seen = data.length;
         return;
       }
-      if (dataRows.length > seenRowCount) {
-        var fresh = dataRows.slice(seenRowCount);
-        seenRowCount = dataRows.length;
-        fresh.forEach(function (row, i) {
-          var text = (row[colIdx] || "").trim();
-          if (text) setTimeout(function () { spawnBubble(text); }, i * 400);
-        });
+      if (data.length > seen) {
+        var fresh = data.slice(seen); seen = data.length;
+        fresh.forEach(function (row, i) { emit(row, i * 500); });
       }
-    }).catch(function (e) {
-      setStatus("error", "오류: " + e.message);
-    });
+    }).catch(function (e) { setStatus("error", "오류: " + e.message); });
   }
 
-  function setStatus(state, text) {
-    statusEl.className = state;
-    statusText.textContent = text;
-  }
+  function setStatus(state, text) { statusEl.className = state; statusText.textContent = text; }
 
-  // ---------- bubble rendering ----------
-  var PALETTE = [
-    "linear-gradient(135deg, rgba(129,140,248,.35), rgba(99,102,241,.25))",
-    "linear-gradient(135deg, rgba(244,114,182,.35), rgba(219,39,119,.25))",
-    "linear-gradient(135deg, rgba(52,211,153,.35), rgba(16,185,129,.25))",
-    "linear-gradient(135deg, rgba(251,191,36,.35), rgba(245,158,11,.25))",
-    "linear-gradient(135deg, rgba(56,189,248,.35), rgba(14,165,233,.25))"
-  ];
-
-  function spawnBubble(text) {
-    var b = document.createElement("div");
-    b.className = "bubble";
-    b.textContent = text;
-    b.style.background = PALETTE[Math.floor(Math.random() * PALETTE.length)];
-    b.style.visibility = "hidden";
-    stage.appendChild(b);
-
-    var w = b.offsetWidth, h = b.offsetHeight;
-    var W = stage.clientWidth, H = stage.clientHeight;
-    var x = Math.random() * Math.max(1, W - w);
-    var y = Math.random() * Math.max(1, H - h);
-    var speed = 0.25 + Math.random() * 0.55;       // px per frame (gentle)
-    var ang = Math.random() * Math.PI * 2;
-    var obj = {
-      el: b, x: x, y: y,
-      vx: Math.cos(ang) * speed,
-      vy: Math.sin(ang) * speed,
-      w: w, h: h
-    };
-    b.style.visibility = "";
-    b.style.transform = "translate3d(" + x + "px," + y + "px,0) scale(0.6)";
-    bubbles.push(obj);
-
-    // fade + pop in, then the physics loop drives the transform
-    requestAnimationFrame(function () {
-      b.classList.add("show");
-      b.style.transform = "translate3d(" + x + "px," + y + "px,0) scale(1)";
-    });
-
-    hudCount.textContent = String(bubbles.length);
-    if (!rafRunning) { rafRunning = true; requestAnimationFrame(tick); }
-  }
-
-  function tick() {
-    var W = stage.clientWidth, H = stage.clientHeight;
-    for (var i = 0; i < bubbles.length; i++) {
-      var o = bubbles[i];
-      o.x += o.vx;
-      o.y += o.vy;
-      if (o.x <= 0) { o.x = 0; o.vx = Math.abs(o.vx); }
-      else if (o.x >= W - o.w) { o.x = Math.max(0, W - o.w); o.vx = -Math.abs(o.vx); }
-      if (o.y <= 0) { o.y = 0; o.vy = Math.abs(o.vy); }
-      else if (o.y >= H - o.h) { o.y = Math.max(0, H - o.h); o.vy = -Math.abs(o.vy); }
-      o.el.style.transform = "translate3d(" + o.x + "px," + o.y + "px,0) scale(1)";
+  function openSettings() {
+    byId("settings").classList.add("open");
+    if (cfg) {
+      byId("f_apiKey").value = cfg.apiKey || "";
+      byId("f_sheetId").value = cfg.sheetId || "";
+      byId("f_tab").value = cfg.tab || "";
+      byId("f_interval").value = cfg.interval || 5;
+      byId("f_maxWords").value = cfg.maxWords || DEFAULTS.maxWords;
+      byId("f_fontScale").value = cfg.fontScale || DEFAULTS.fontScale;
+      byId("f_topLabel").value = cfg.topLabel || "나를 불안하게 하는 말";
+      byId("f_botLabel").value = cfg.botLabel || "그런 나에게 하고 싶은 위로";
+      if (cfg.topCol) setOne("f_topCol", cfg.topCol);
+      if (cfg.botCol) setOne("f_botCol", cfg.botCol);
     }
-    if (bubbles.length) { requestAnimationFrame(tick); }
-    else { rafRunning = false; }
+  }
+  function setOne(id, val) {
+    byId(id).innerHTML = '<option value="' + val.replace(/"/g, "&quot;") + '" selected>' + val + "</option>";
+  }
+  function readForm() {
+    return {
+      apiKey: byId("f_apiKey").value.trim(),
+      sheetId: byId("f_sheetId").value.trim(),
+      tab: byId("f_tab").value.trim(),
+      interval: Math.max(2, parseInt(byId("f_interval").value, 10) || 5),
+      maxWords: Math.max(4, parseInt(byId("f_maxWords").value, 10) || DEFAULTS.maxWords),
+      fontScale: parseFloat(byId("f_fontScale").value) || DEFAULTS.fontScale,
+      topCol: byId("f_topCol").value,
+      botCol: byId("f_botCol").value,
+      topLabel: byId("f_topLabel").value.trim() || "나를 불안하게 하는 말",
+      botLabel: byId("f_botLabel").value.trim() || "그런 나에게 하고 싶은 위로"
+    };
+  }
+  function loadCols() {
+    formErr.textContent = "";
+    var c = readForm();
+    if (!c.apiKey || !c.sheetId) { formErr.textContent = "API 키와 스프레드시트 ID를 먼저 입력하세요."; return; }
+    byId("btnLoadCols").textContent = "불러오는 중…";
+    fetchValues(c).then(function (rows) {
+      byId("btnLoadCols").textContent = "열 불러오기";
+      if (!rows.length) { formErr.textContent = "시트에 데이터가 없습니다."; return; }
+      var headers = rows[0];
+      ["f_topCol", "f_botCol"].forEach(function (id) {
+        var sel = byId(id), cur = cfg ? (id === "f_topCol" ? cfg.topCol : cfg.botCol) : "";
+        sel.innerHTML = "";
+        headers.forEach(function (h) {
+          var name = (h || "").trim(); if (!name) return;
+          var o = document.createElement("option"); o.value = name; o.textContent = name;
+          if (name === cur) o.selected = true; sel.appendChild(o);
+        });
+      });
+      formErr.textContent = "✓ " + headers.length + "개 열을 찾았습니다. 위/아래 열을 고르세요.";
+    }).catch(function (e) { byId("btnLoadCols").textContent = "열 불러오기"; formErr.textContent = "오류: " + e.message; });
+  }
+  function doSave() {
+    formErr.textContent = "";
+    var c = readForm();
+    if (!c.apiKey || !c.sheetId) { formErr.textContent = "API 키와 시트 ID는 필수입니다."; return; }
+    if (!c.topCol && !c.botCol) { formErr.textContent = "위/아래 중 최소 한 개 열은 선택하세요."; return; }
+    cfg = c; save(cfg); byId("settings").classList.remove("open"); restart();
   }
 
-  // keep bubble sizes/bounds correct when the window changes
-  window.addEventListener("resize", function () {
-    var W = stage.clientWidth, H = stage.clientHeight;
-    bubbles.forEach(function (o) {
-      o.w = o.el.offsetWidth;
-      o.h = o.el.offsetHeight;
-      if (o.x > W - o.w) o.x = Math.max(0, W - o.w);
-      if (o.y > H - o.h) o.y = Math.max(0, H - o.h);
-    });
-  });
+  // sliders: show the value and preview it live behind the dialog
+  function syncSliders(live) {
+    var n = parseInt(byId("f_maxWords").value, 10);
+    var s = parseFloat(byId("f_fontScale").value);
+    byId("o_maxWords").textContent = n;
+    byId("o_fontScale").textContent = s.toFixed(2) + "×";
+    if (live) applyDisplay({ maxWords: n, fontScale: s });
+  }
+  byId("f_maxWords").addEventListener("input", function () { syncSliders(true); });
+  byId("f_fontScale").addEventListener("input", function () { syncSliders(true); });
 
-  // ---------- utils ----------
-  function escHtml(s) { return (s || "").replace(/[&<>]/g, function (c) {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
-  function escAttr(s) { return escHtml(s).replace(/"/g, "&quot;"); }
+  byId("gear").addEventListener("click", function () { openSettings(); syncSliders(false); });
+  byId("btnLoadCols").addEventListener("click", loadCols);
+  byId("btnSave").addEventListener("click", doSave);
+  byId("settings").addEventListener("click", function (e) { if (e.target === byId("settings")) byId("settings").classList.remove("open"); });
+  halfTop.addEventListener("dblclick", function () { spawnWord("top", "불안해요"); });
+  halfBottom.addEventListener("dblclick", function () { spawnWord("bottom", "괜찮아"); });
 
-  // ---------- wire up ----------
-  byId("gear").addEventListener("click", openSettings);
-  byId("btnLoadCols").addEventListener("click", loadColumns);
-  byId("btnSave").addEventListener("click", save);
-  settingsEl.addEventListener("click", function (e) {
-    if (e.target === settingsEl) closeSettings();
-  });
-  // demo bubble on double-click of stage (for testing layout without data)
-  stage.addEventListener("dblclick", function () {
-    spawnBubble("테스트 응답입니다 🫧");
-  });
-
-  // ---------- boot ----------
-  if (cfg) { restart(); }
-  else { openSettings(); setStatus("idle", "설정이 필요합니다"); }
+  applyDisplay(cfg);
+  if (cfg) restart(); else { openSettings(); setStatus("idle", "설정이 필요합니다"); }
+  syncSliders(false);
 })();
 </script>
+</body>
+</html>
