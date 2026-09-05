@@ -338,20 +338,58 @@
     el.title = count > 1 ? el.textContent + " ×" + count : el.textContent;
   }
 
+  // the boxes already taken in this half, so a new word can dodge them
+  function occupied(which) {
+    var out = [];
+    shown[which].forEach(function (rec) { if (rec.el && rec.el._box) out.push(rec.el._box); });
+    return out;
+  }
+
+  // Try a handful of spots and keep the one that covers existing words least.
+  // Some overlap is fine — the screen should read as full — but nothing should
+  // sit squarely on top of something else while there is still open space.
+  function placeWord(which, el, w, h) {
+    var half = which === "top" ? halfTop : halfBottom;
+    var HW = half.clientWidth, HH = half.clientHeight;
+    if (!(HW > 0) || !(HH > 0) || !(w > 0)) {          // nothing measurable to avoid
+      el.style.left = rand(2, 86) + "%";
+      el.style.top = rand(5, 88) + "%";
+      return;
+    }
+    var EDGE = 10, M = 8;                              // page margin, breathing room
+    var maxX = Math.max(0, HW - w - EDGE * 2), maxY = Math.max(0, HH - h - EDGE * 2);
+    var taken = occupied(which);
+    var bx = EDGE, by = EDGE, bestScore = Infinity;
+    for (var i = 0; i < 40; i++) {
+      var x = EDGE + Math.random() * maxX, y = EDGE + Math.random() * maxY, score = 0;
+      for (var j = 0; j < taken.length; j++) {
+        var b = taken[j];
+        var ox = Math.min(x + w + M, b.x + b.w) - Math.max(x - M, b.x);
+        var oy = Math.min(y + h + M, b.y + b.h) - Math.max(y - M, b.y);
+        if (ox > 0 && oy > 0) score += ox * oy;
+      }
+      if (score < bestScore) { bestScore = score; bx = x; by = y; }
+      if (score === 0) break;                          // found clear space, done
+    }
+    el.style.left = Math.round(bx) + "px";
+    el.style.top = Math.round(by) + "px";
+    el._box = { x: bx, y: by, w: w, h: h };
+  }
+
   function makeWord(which, text, count) {
     var half = which === "top" ? halfTop : halfBottom;
     var el = document.createElement("span");
     el.className = "w";
     el.textContent = text;
-    // spread wider than the old 16-word layout needed, so a full 300 fill the half
-    el.style.left = rand(2, 86) + "%";
-    el.style.top = rand(5, 88) + "%";
     el.style.setProperty("--base", rand(19, 30).toFixed(1) + "px"); // per-word variety
     el.style.color = pick(PALETTE[which]);
     var drift = pick(DRIFT), dd = rand(18, 30).toFixed(1);
     el.style.animation = drift + " calc(var(--spd)*" + dd + "s) ease-in-out infinite";
     styleByCount(which, el, count);
+    el.style.visibility = "hidden";       // measure it before deciding where it goes
     half.appendChild(el);
+    placeWord(which, el, el.offsetWidth, el.offsetHeight);
+    el.style.visibility = "";
     requestAnimationFrame(function () { el.classList.add("show"); });
     return el;
   }
@@ -418,7 +456,14 @@
         })(d);
       } else if (rec.count !== d.count) {
         rec.count = d.count;                        // same answer submitted again
-        if (rec.el) styleByCount(which, rec.el, d.count);
+        if (rec.el) {
+          styleByCount(which, rec.el, d.count);
+          (function (r) {                           // it grew; remeasure its box
+            setTimeout(function () {
+              if (r.el && r.el._box) { r.el._box.w = r.el.offsetWidth; r.el._box.h = r.el.offsetHeight; }
+            }, 950);
+          })(rec);
+        }
       }
     });
   }
@@ -643,6 +688,21 @@
   }
   // purely decorative — never let it take the word display down with it
   try { tightrope(); } catch (e) { /* no rope, words still run */ }
+
+  window.addEventListener("resize", function () {
+    ["top", "bottom"].forEach(function (k) {
+      var half = k === "top" ? halfTop : halfBottom;
+      var HW = half.clientWidth, HH = half.clientHeight;
+      shown[k].forEach(function (rec) {
+        var el = rec.el;
+        if (!el || !el._box) return;
+        el._box.x = Math.min(el._box.x, Math.max(0, HW - el._box.w - 10));
+        el._box.y = Math.min(el._box.y, Math.max(0, HH - el._box.h - 10));
+        el.style.left = Math.round(el._box.x) + "px";
+        el.style.top = Math.round(el._box.y) + "px";
+      });
+    });
+  });
 
   byId("gear").addEventListener("click", function () { openSettings(); syncSliders(false); });
   byId("btnLoadCols").addEventListener("click", loadCols);
