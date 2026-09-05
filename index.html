@@ -11,6 +11,7 @@
   :root {
     --spd: 1;
     --scale: 1;
+    --mq: 1;      /* viewport shrink factor */
     --panel: #151b29;
     --panel-2: #1c2334;
     --border: rgba(200,212,240,.16);
@@ -57,14 +58,14 @@
   .label.bottom .dot { background: var(--gold); } .label.bottom .txt { color: var(--gold); }
 
   /* ── floating words ── */
+  /* size grows with how many times the same answer was submitted */
   .w {
     position: absolute; white-space: nowrap; will-change: transform, opacity;
-    opacity: 0; transition: opacity 1.1s ease;
+    opacity: 0;
+    font-size: calc(var(--base, 22px) * var(--scale) * var(--grow, 1) * var(--mq));
+    transition: opacity 1.1s ease, font-size .9s cubic-bezier(.34, 1.4, .64, 1);
   }
   .w.show { opacity: var(--vis, .9); }
-  .s-xl { font-size: calc(46px * var(--scale)); } .s-l { font-size: calc(36px * var(--scale)); }
-  .s-m  { font-size: calc(30px * var(--scale)); } .s-s { font-size: calc(24px * var(--scale)); }
-  .s-xs { font-size: calc(20px * var(--scale)); }
 
   @keyframes d1 { 0%,100%{transform:translate(0,0) rotate(0)} 25%{transform:translate(14px,-18px) rotate(1deg)}
     50%{transform:translate(-10px,10px) rotate(-1deg)} 75%{transform:translate(8px,16px) rotate(.5deg)} }
@@ -73,9 +74,7 @@
     50%{transform:translate(-14px,-8px) rotate(1deg)} 80%{transform:translate(6px,-12px) rotate(0)} }
 
   @media (max-width: 680px) {
-    .s-xl{font-size:calc(30px * var(--scale))} .s-l{font-size:calc(25px * var(--scale))}
-    .s-m{font-size:calc(21px * var(--scale))} .s-s{font-size:calc(18px * var(--scale))}
-    .s-xs{font-size:calc(16px * var(--scale))}
+    :root { --mq: .68; }
     .label.top{top:22px;left:22px} .label.bottom{bottom:22px;left:22px}
   }
   @media (prefers-reduced-motion: reduce) { .w { animation: none !important; } }
@@ -188,7 +187,7 @@
 
     <div class="row">
       <div class="field">
-        <label>화면당 단어 개수 <span class="hint">(위/아래 각각)</span></label>
+        <label>화면당 단어 개수 <span class="hint">(중복 제외, 위/아래 각각)</span></label>
         <div class="slider">
           <input id="f_maxWords" type="range" min="4" max="40" step="1" value="16" />
           <output id="o_maxWords">16</output>
@@ -263,8 +262,6 @@
     top: ["#dfe6f6","#c9d2e8","#b9c3dd","#aab5d2","#98a4c4","#8d99b9","#828fb0","#7f8caf","#7b88ab"],
     bottom: ["#ffd479","#f2b23a","#f6e0b0","#e8c98d","#d8c6a4","#cdbb99","#c2b291","#bfae8d"]
   };
-  var TIERS = ["s-xs","s-xs","s-xs","s-s","s-s","s-s","s-m","s-m","s-l","s-xl"];
-  var WEIGHT = { "s-xs": 400, "s-s": 400, "s-m": 700, "s-l": 900, "s-xl": 900 };
   var DRIFT = ["d1","d2","d3"];
 
   function load() { try { return JSON.parse(localStorage.getItem(LS)) || null; } catch (e) { return null; } }
@@ -287,19 +284,29 @@
     });
   }
 
-  function makeWord(which, text) {
+  // How much a word grows for being submitted `count` times.
+  // 1x → 1.00, 2x → 1.45, 4x → 1.90, 8x → 2.35, capped so it can't take over.
+  function styleByCount(which, el, count) {
+    var grow = Math.min(2.8, 1 + Math.log(count) / Math.LN2 * 0.45);
+    el.style.setProperty("--grow", grow.toFixed(3));
+    el.style.fontWeight = count >= 3 ? 900 : count >= 2 ? 700 : 400;
+    var floor = which === "top" ? 0.55 : 0.7;
+    el.style.setProperty("--vis", Math.min(1, floor + (count - 1) * 0.12).toFixed(2));
+    el.title = count > 1 ? el.textContent + " ×" + count : el.textContent;
+  }
+
+  function makeWord(which, text, count) {
     var half = which === "top" ? halfTop : halfBottom;
     var el = document.createElement("span");
-    var tier = pick(TIERS);
-    el.className = "w " + tier;
+    el.className = "w";
     el.textContent = text;
     el.style.left = rand(3, 78) + "%";
     el.style.top = rand(10, 80) + "%";
-    el.style.fontWeight = WEIGHT[tier];
+    el.style.setProperty("--base", rand(19, 30).toFixed(1) + "px"); // per-word variety
     el.style.color = pick(PALETTE[which]);
-    el.style.setProperty("--vis", (which === "top" ? rand(0.55, 0.95) : rand(0.7, 1)).toFixed(2));
     var drift = pick(DRIFT), dd = rand(18, 30).toFixed(1);
     el.style.animation = drift + " calc(var(--spd)*" + dd + "s) ease-in-out infinite";
+    styleByCount(which, el, count);
     half.appendChild(el);
     requestAnimationFrame(function () { el.classList.add("show"); });
     return el;
@@ -313,46 +320,59 @@
 
   function clearWords() {
     ["top", "bottom"].forEach(function (k) {
-      shown[k].forEach(function (e) { e.remove(); });
+      shown[k].forEach(function (rec) { if (rec.el) rec.el.remove(); });
       shown[k].clear();
     });
   }
 
   // Build the words the sheet says should be on screen right now.
-  // Key = timestamp + text so a word keeps its identity even when other rows
-  // are deleted and everything below shifts up.
+  // Identical answers are merged into ONE word carrying a count, so a repeated
+  // answer grows instead of piling up another copy.
   function desiredFrom(data, colIdx) {
-    var out = [], dup = {};
+    var byKey = {};
     for (var i = 0; i < data.length; i++) {
-      var text = (data[i][colIdx] || "").trim();
-      if (!text) continue;
-      var base = (data[i][0] || "").toString().trim() + "|" + text;
-      dup[base] = (dup[base] || 0) + 1;
-      out.push({ key: base + "#" + dup[base], text: text });
+      var raw = (data[i][colIdx] || "").trim();
+      if (!raw) continue;
+      var text = raw.replace(/\s+/g, " ");
+      var key = text.toLowerCase();
+      if (byKey[key]) { byKey[key].count++; byKey[key].last = i; }
+      else byKey[key] = { key: key, text: text, count: 1, last: i };
     }
-    return out.slice(Math.max(0, out.length - MAX_PER_HALF)); // most recent N
+    var list = Object.keys(byKey).map(function (k) { return byKey[k]; });
+    // keep the N most recently submitted words — repeating an answer refreshes
+    // its recency, so popular words stay on screen on their own
+    list.sort(function (a, b) { return a.last - b.last; });
+    return list.slice(Math.max(0, list.length - MAX_PER_HALF));
   }
 
   // Diff the screen against the sheet: drop what's gone, add what's new,
-  // leave untouched words alone so they keep drifting without flicker.
+  // resize what changed count, and leave the rest drifting without flicker.
   function reconcile(which, desired) {
     var map = shown[which];
     var want = {};
     desired.forEach(function (d) { want[d.key] = true; });
 
     var gone = [];
-    map.forEach(function (el, key) { if (!want[key]) gone.push(key); });
-    gone.forEach(function (key) { fadeOut(map.get(key)); map.delete(key); });
+    map.forEach(function (rec, key) { if (!want[key]) gone.push(key); });
+    gone.forEach(function (key) { fadeOut(map.get(key).el); map.delete(key); });
 
     var added = 0;
     desired.forEach(function (d) {
-      if (map.has(d.key)) return;
-      var delay = added++ * 220;
-      map.set(d.key, null); // reserve the slot so a fast re-poll can't double-add
-      setTimeout(function () {
-        if (!map.has(d.key)) return;   // deleted again before it appeared
-        map.set(d.key, makeWord(which, d.text));
-      }, delay);
+      var rec = map.get(d.key);
+      if (!rec) {
+        var delay = added++ * 220;
+        map.set(d.key, { el: null, count: d.count }); // reserve so a fast re-poll can't double-add
+        (function (item) {
+          setTimeout(function () {
+            var cur = map.get(item.key);
+            if (!cur) return;                       // deleted before it appeared
+            cur.el = makeWord(which, item.text, cur.count);
+          }, delay);
+        })(d);
+      } else if (rec.count !== d.count) {
+        rec.count = d.count;                        // same answer submitted again
+        if (rec.el) styleByCount(which, rec.el, d.count);
+      }
     });
   }
 
@@ -366,8 +386,7 @@
       var map = shown[k];
       var keys = Array.from(map.keys());
       for (var i = 0; i < keys.length - MAX_PER_HALF; i++) {
-        var el = map.get(keys[i]);
-        if (el) fadeOut(el);
+        fadeOut(map.get(keys[i]).el);
         map.delete(keys[i]);
       }
     });
@@ -481,7 +500,7 @@
   byId("settings").addEventListener("click", function (e) { if (e.target === byId("settings")) byId("settings").classList.remove("open"); });
   // layout test words — untracked, so they fade on their own after a while
   function testWord(which, text) {
-    var el = makeWord(which, text);
+    var el = makeWord(which, text, 1 + Math.floor(Math.random() * 4)); // vary the size
     setTimeout(function () { fadeOut(el); }, 15000);
   }
   halfTop.addEventListener("dblclick", function () { testWord("top", "불안해요"); });
