@@ -252,8 +252,10 @@
   var statusEl = byId("status"), statusText = byId("statusText"), formErr = byId("formErr");
 
   var cfg = load();
-  var timer = null, seen = 0, initialized = false;
-  var pools = { top: [], bottom: [] };
+  var timer = null;
+  // key -> element, in sheet order. Rebuilt against the sheet on every poll so
+  // rows deleted from the sheet also disappear from the screen.
+  var shown = { top: new Map(), bottom: new Map() };
   var MAX_PER_HALF = 16;   // overridden by cfg.maxWords
   var DEFAULTS = { maxWords: 16, fontScale: 1 };
 
@@ -285,7 +287,7 @@
     });
   }
 
-  function spawnWord(which, text) {
+  function makeWord(which, text) {
     var half = which === "top" ? halfTop : halfBottom;
     var el = document.createElement("span");
     var tier = pick(TIERS);
@@ -300,17 +302,58 @@
     el.style.animation = drift + " calc(var(--spd)*" + dd + "s) ease-in-out infinite";
     half.appendChild(el);
     requestAnimationFrame(function () { el.classList.add("show"); });
+    return el;
+  }
 
-    var pool = pools[which];
-    pool.push(el);
-    if (pool.length > MAX_PER_HALF) {
-      var old = pool.shift(); old.classList.remove("show");
-      setTimeout(function () { old.remove(); }, 1200);
-    }
+  function fadeOut(el) {
+    if (!el) return;   // slot reserved but the word hadn't appeared yet
+    el.classList.remove("show");
+    setTimeout(function () { el.remove(); }, 1200);
   }
 
   function clearWords() {
-    ["top", "bottom"].forEach(function (k) { pools[k].forEach(function (e) { e.remove(); }); pools[k] = []; });
+    ["top", "bottom"].forEach(function (k) {
+      shown[k].forEach(function (e) { e.remove(); });
+      shown[k].clear();
+    });
+  }
+
+  // Build the words the sheet says should be on screen right now.
+  // Key = timestamp + text so a word keeps its identity even when other rows
+  // are deleted and everything below shifts up.
+  function desiredFrom(data, colIdx) {
+    var out = [], dup = {};
+    for (var i = 0; i < data.length; i++) {
+      var text = (data[i][colIdx] || "").trim();
+      if (!text) continue;
+      var base = (data[i][0] || "").toString().trim() + "|" + text;
+      dup[base] = (dup[base] || 0) + 1;
+      out.push({ key: base + "#" + dup[base], text: text });
+    }
+    return out.slice(Math.max(0, out.length - MAX_PER_HALF)); // most recent N
+  }
+
+  // Diff the screen against the sheet: drop what's gone, add what's new,
+  // leave untouched words alone so they keep drifting without flicker.
+  function reconcile(which, desired) {
+    var map = shown[which];
+    var want = {};
+    desired.forEach(function (d) { want[d.key] = true; });
+
+    var gone = [];
+    map.forEach(function (el, key) { if (!want[key]) gone.push(key); });
+    gone.forEach(function (key) { fadeOut(map.get(key)); map.delete(key); });
+
+    var added = 0;
+    desired.forEach(function (d) {
+      if (map.has(d.key)) return;
+      var delay = added++ * 220;
+      map.set(d.key, null); // reserve the slot so a fast re-poll can't double-add
+      setTimeout(function () {
+        if (!map.has(d.key)) return;   // deleted again before it appeared
+        map.set(d.key, makeWord(which, d.text));
+      }, delay);
+    });
   }
 
   // apply display settings that don't require a reconnect
@@ -318,18 +361,21 @@
     var scale = (c && c.fontScale) || DEFAULTS.fontScale;
     document.documentElement.style.setProperty("--scale", scale);
     MAX_PER_HALF = (c && c.maxWords) || DEFAULTS.maxWords;
-    // trim immediately if the cap was lowered
+    // trim the oldest immediately if the cap was lowered (the next poll re-syncs)
     ["top", "bottom"].forEach(function (k) {
-      while (pools[k].length > MAX_PER_HALF) {
-        var old = pools[k].shift(); old.classList.remove("show");
-        (function (n) { setTimeout(function () { n.remove(); }, 1200); })(old);
+      var map = shown[k];
+      var keys = Array.from(map.keys());
+      for (var i = 0; i < keys.length - MAX_PER_HALF; i++) {
+        var el = map.get(keys[i]);
+        if (el) fadeOut(el);
+        map.delete(keys[i]);
       }
     });
   }
 
   function restart() {
     if (timer) { clearInterval(timer); timer = null; }
-    seen = 0; initialized = false; clearWords();
+    clearWords();
     applyDisplay(cfg);
     byId("labelTop").textContent = (cfg && cfg.topLabel) || "나를 불안하게 하는 말";
     byId("labelBottom").textContent = (cfg && cfg.botLabel) || "그런 나에게 하고 싶은 위로";
@@ -349,22 +395,9 @@
       if (ti === -1 && bi === -1) { setStatus("error", "지정한 열을 찾을 수 없습니다"); return; }
       var data = rows.slice(1);
 
-      function emit(row, delay) {
-        if (ti !== -1) { var t = (row[ti] || "").trim(); if (t) setTimeout(function () { spawnWord("top", t); }, delay); }
-        if (bi !== -1) { var b = (row[bi] || "").trim(); if (b) setTimeout(function () { spawnWord("bottom", b); }, delay + 200); }
-      }
-
-      if (!initialized) {
-        initialized = true;
-        var recent = data.slice(Math.max(0, data.length - MAX_PER_HALF));
-        recent.forEach(function (row, i) { emit(row, i * 250); });
-        seen = data.length;
-        return;
-      }
-      if (data.length > seen) {
-        var fresh = data.slice(seen); seen = data.length;
-        fresh.forEach(function (row, i) { emit(row, i * 500); });
-      }
+      // Full re-sync each poll: additions AND deletions in the sheet are reflected.
+      reconcile("top", ti === -1 ? [] : desiredFrom(data, ti));
+      reconcile("bottom", bi === -1 ? [] : desiredFrom(data, bi));
     }).catch(function (e) { setStatus("error", "오류: " + e.message); });
   }
 
@@ -446,8 +479,13 @@
   byId("btnLoadCols").addEventListener("click", loadCols);
   byId("btnSave").addEventListener("click", doSave);
   byId("settings").addEventListener("click", function (e) { if (e.target === byId("settings")) byId("settings").classList.remove("open"); });
-  halfTop.addEventListener("dblclick", function () { spawnWord("top", "불안해요"); });
-  halfBottom.addEventListener("dblclick", function () { spawnWord("bottom", "괜찮아"); });
+  // layout test words — untracked, so they fade on their own after a while
+  function testWord(which, text) {
+    var el = makeWord(which, text);
+    setTimeout(function () { fadeOut(el); }, 15000);
+  }
+  halfTop.addEventListener("dblclick", function () { testWord("top", "불안해요"); });
+  halfBottom.addEventListener("dblclick", function () { testWord("bottom", "괜찮아"); });
 
   applyDisplay(cfg);
   if (cfg) restart(); else { openSettings(); setStatus("idle", "설정이 필요합니다"); }
