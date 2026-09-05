@@ -43,7 +43,7 @@
   /* ── divider: a slack rope with someone walking it ── */
   .divider {
     position: absolute; left: 0; right: 0; top: 50%;
-    height: 210px; transform: translateY(-50%);
+    height: 180px; transform: translateY(-50%);
     z-index: 5; pointer-events: none;
   }
   .divider svg { display: block; width: 100%; height: 100%; }
@@ -518,36 +518,49 @@
   function tightrope() {
     var box = byId("divider"), svg = byId("ropeSvg"), rope = byId("rope"), walker = byId("walker");
     var legL = byId("legL"), legR = byId("legR"), armL = byId("armL"), armR = byId("armR");
-    var H = 210, W = 0, len = 0;
-    var SPEED = 46;          // px along the rope per second
-    var pos = 0, last = 0;
+    var H = 180, W = 0, cy = H / 2;
+    var SPEED = 46;      // px across the screen per second
+    var SLACK = 4;       // the unloaded rope is very nearly taut
+    var LOAD = 34;       // how far the walker's weight drags the rope down
+    var SPREAD = 78;     // how far along the rope that pull is felt
+    var wx = 0, last = 0;
+
+    // Rope height at x while the walker stands at wxNow. Taut everywhere except
+    // right under the feet, where their weight pulls a dip that travels with them.
+    function ropeY(x, wxNow) {
+      var span = Math.sin(Math.PI * Math.max(0, Math.min(1, W ? wxNow / W : 0)));
+      var k = (x - wxNow) / SPREAD;
+      return cy
+        + SLACK * Math.sin(Math.PI * (W ? x / W : 0))   // barely-there slack
+        + LOAD * span * Math.exp(-k * k / 2);           // the loaded dip
+    }
+
+    function drawRope(wxNow) {
+      var d = "", N = 200;
+      for (var i = 0; i <= N; i++) {
+        var x = i / N * W;
+        d += (i ? "L" : "M") + x.toFixed(1) + "," + ropeY(x, wxNow).toFixed(1);
+      }
+      rope.setAttribute("d", d);
+    }
 
     function build() {
       W = box.clientWidth || 1200;
       svg.setAttribute("viewBox", "0 0 " + W + " " + H);
-      var cy = H / 2, d = "", N = 260;
-      for (var i = 0; i <= N; i++) {
-        var t = i / N, x = t * W;
-        // two overlaid waves: a long slack sag plus a shorter tremor
-        var y = cy + Math.sin(t * Math.PI * 2 * 1.2 + 0.6) * 34
-                   + Math.sin(t * Math.PI * 2 * 2.7 + 1.9) * 11;
-        d += (i ? "L" : "M") + x.toFixed(1) + "," + y.toFixed(1);
-      }
-      rope.setAttribute("d", d);
-      len = rope.getTotalLength();
-      if (pos > len) pos = 0;
+      if (wx > W) wx = 0;
+      drawRope(wx);
     }
 
-    function place(distance, tSec, opacity) {
-      var p = rope.getPointAtLength(distance);
-      var q = rope.getPointAtLength(Math.min(len, distance + 2));
-      var slope = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI;
+    function place(tSec, opacity) {
+      drawRope(wx);
+      var y = ropeY(wx, wx);
+      var slope = Math.atan2(ropeY(wx + 6, wx) - ropeY(wx - 6, wx), 12) * 180 / Math.PI;
       // never quite steady: two out-of-phase sways read as losing balance
       var teeter = Math.sin(tSec * 2.1) * 4.5 + Math.sin(tSec * 3.9) * 2.4;
       var step = tSec * 7.2;
       var bob = Math.abs(Math.sin(step)) * 2.6;
       walker.setAttribute("transform",
-        "translate(" + p.x.toFixed(2) + "," + (p.y - bob).toFixed(2) + ") " +
+        "translate(" + wx.toFixed(2) + "," + (y - bob).toFixed(2) + ") " +
         "rotate(" + (slope + teeter).toFixed(2) + ")");
       walker.setAttribute("opacity", opacity.toFixed(3));
 
@@ -563,10 +576,10 @@
       var tSec = ts / 1000;
       var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0;
       last = ts;
-      pos += SPEED * dt;
-      if (pos > len) pos -= len;            // reached the right edge, start again at the left
-      var edge = Math.min(pos, len - pos) / 60;   // fade in/out at both ends
-      place(pos, tSec, Math.max(0, Math.min(1, edge)));
+      wx += SPEED * dt;
+      if (wx > W) wx = 0;                       // off the right edge, begin again at the left
+      var edge = Math.min(wx, W - wx) / 60;     // fade in/out at both ends
+      place(tSec, Math.max(0, Math.min(1, edge)));
       requestAnimationFrame(frame);
     }
 
@@ -575,7 +588,7 @@
     window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(build, 150); });
 
     var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (still) place(len * 0.5, 0, 1);
+    if (still) { wx = W * 0.5; place(0, 1); }
     else requestAnimationFrame(frame);
   }
   // purely decorative — never let it take the word display down with it
