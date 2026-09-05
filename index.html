@@ -43,10 +43,10 @@
   /* ── divider: a slack rope with someone walking it ── */
   .divider {
     position: absolute; left: 0; right: 0; top: 50%;
-    height: 220px; transform: translateY(-50%);
+    height: 300px; transform: translateY(-50%);
     z-index: 5; pointer-events: none;
   }
-  .divider svg { display: block; width: 100%; height: 100%; }
+  .divider svg { display: block; width: 100%; height: 100%; overflow: visible; }
   /* the rope fades at both edges so it reads as continuing off-screen */
   .rope {
     fill: none; stroke: var(--gold); stroke-width: 2.4; stroke-linecap: round;
@@ -170,13 +170,13 @@
       <defs>
         <!-- one frame of the sheet, positioned so the planted foot is at (0,0) -->
         <clipPath id="frameClip">
-          <rect x="-88.7" y="-188.1" width="137.875" height="190" />
+          <rect x="-61.5" y="-155.1" width="104.5" height="160" />
         </clipPath>
       </defs>
       <g id="walker">
         <g clip-path="url(#frameClip)">
-          <image id="sprite" href="walker.png" x="-88.7" y="-188.1"
-                 width="1103" height="190" />
+          <image id="sprite" href="walker.png" x="-61.5" y="-155.1"
+                 width="627" height="160" />
         </g>
       </g>
     </svg>
@@ -227,6 +227,13 @@
         <div class="slider">
           <input id="f_speed" type="range" min="0.2" max="3" step="0.05" value="1" />
           <output id="o_speed">1.00×</output>
+        </div>
+      </div>
+      <div class="field">
+        <label>줄 타는 사람 크기 <span class="hint">(걸음·밧줄 눌림도 함께 조절)</span></label>
+        <div class="slider">
+          <input id="f_walker" type="range" min="0.3" max="3" step="0.05" value="1" />
+          <output id="o_walker">1.00×</output>
         </div>
       </div>
     </div>
@@ -288,7 +295,8 @@
   // rows deleted from the sheet also disappear from the screen.
   var shown = { top: new Map(), bottom: new Map() };
   var MAX_PER_HALF = 16;   // overridden by cfg.maxWords
-  var DEFAULTS = { maxWords: 16, fontScale: 1, speed: 1 };
+  var DEFAULTS = { maxWords: 16, fontScale: 1, speed: 1, walker: 1 };
+  var walkerScale = DEFAULTS.walker;   // read live by the rope animation
 
   var PALETTE = {
     top: ["#dfe6f6","#c9d2e8","#b9c3dd","#aab5d2","#98a4c4","#8d99b9","#828fb0","#7f8caf","#7b88ab"],
@@ -419,6 +427,7 @@
     // --spd multiplies the drift duration, so a faster speed means a shorter cycle
     var speed = (c && c.speed) || DEFAULTS.speed;
     document.documentElement.style.setProperty("--spd", (1 / speed).toFixed(3));
+    walkerScale = (c && c.walker) || DEFAULTS.walker;
     MAX_PER_HALF = (c && c.maxWords) || DEFAULTS.maxWords;
     // trim the oldest immediately if the cap was lowered (the next poll re-syncs)
     ["top", "bottom"].forEach(function (k) {
@@ -471,6 +480,7 @@
       byId("f_maxWords").value = cfg.maxWords || DEFAULTS.maxWords;
       byId("f_fontScale").value = cfg.fontScale || DEFAULTS.fontScale;
       byId("f_speed").value = cfg.speed || DEFAULTS.speed;
+      byId("f_walker").value = cfg.walker || DEFAULTS.walker;
       byId("f_topLabel").value = cfg.topLabel || "나를 불안하게 하는 말";
       byId("f_botLabel").value = cfg.botLabel || "그런 나에게 하고 싶은 위로";
       if (cfg.topCol) setOne("f_topCol", cfg.topCol);
@@ -489,6 +499,7 @@
       maxWords: Math.max(4, parseInt(byId("f_maxWords").value, 10) || DEFAULTS.maxWords),
       fontScale: parseFloat(byId("f_fontScale").value) || DEFAULTS.fontScale,
       speed: parseFloat(byId("f_speed").value) || DEFAULTS.speed,
+      walker: parseFloat(byId("f_walker").value) || DEFAULTS.walker,
       topCol: byId("f_topCol").value,
       botCol: byId("f_botCol").value,
       topLabel: byId("f_topLabel").value.trim() || "나를 불안하게 하는 말",
@@ -529,38 +540,46 @@
     var n = parseInt(byId("f_maxWords").value, 10);
     var s = parseFloat(byId("f_fontScale").value);
     var v = parseFloat(byId("f_speed").value);
+    var wk = parseFloat(byId("f_walker").value);
     byId("o_maxWords").textContent = n;
     byId("o_fontScale").textContent = s.toFixed(2) + "×";
     byId("o_speed").textContent = v.toFixed(2) + "×";
-    if (live) applyDisplay({ maxWords: n, fontScale: s, speed: v });
+    byId("o_walker").textContent = wk.toFixed(2) + "×";
+    if (live) applyDisplay({ maxWords: n, fontScale: s, speed: v, walker: wk });
   }
   byId("f_maxWords").addEventListener("input", function () { syncSliders(true); });
   byId("f_fontScale").addEventListener("input", function () { syncSliders(true); });
   byId("f_speed").addEventListener("input", function () { syncSliders(true); });
+  byId("f_walker").addEventListener("input", function () { syncSliders(true); });
 
   // ── the rope and the figure walking it ─────────────────────────────────
   function tightrope() {
     var box = byId("divider"), svg = byId("ropeSvg"), rope = byId("rope"), walker = byId("walker");
     var sprite = byId("sprite");
-    var FRAMES = 8, FW = 137.875, ANCHOR_X = 88.7, ANCHOR_Y = 188.1;
-    var FIG = 0.80;      // sprite is 190px tall; draw it ~152px
-    var CYCLE = 112;     // ground covered by one 8-frame cycle — keeps feet from sliding
+    var FRAMES = 6, FW = 104.5, ANCHOR_X = 61.5, ANCHOR_Y = 155.1;
+    var FIG_BASE = 0.2375;   // the 160px sheet drawn at ~38px when the size slider is 1.0×
     var shownFrame = -1;
-    var H = 220, W = 0, cy = H / 2;
-    var SPEED = 78;      // px across the screen per second
-    var SLACK = 4;       // the unloaded rope is very nearly taut
-    var LOAD = 34;       // how far the walker's weight drags the rope down
-    var SPREAD = 78;     // how far along the rope that pull is felt
+    var H = 300, W = 0, cy = H / 2;
+    var SLACK = 4;           // the unloaded rope is very nearly taut
+
+    // Everything the figure touches is measured off its own height, so moving the
+    // size slider keeps the stride, the pace and the rope's dip all in proportion.
+    function fig()      { return FIG_BASE * walkerScale; }
+    function figH()     { return 160 * fig(); }
+    function cycle()    { return figH() * 0.80; }   // ground covered per 6-frame cycle
+    function speedPx()  { return figH() * 0.90; }   // px travelled per second
+    function dipDepth() { return figH() * 0.29; }   // how far their weight drags the rope
+    function spread()   { return figH() * 1.20; }   // how far along the rope that is felt
     var wx = 0, last = 0;
 
     // Rope height at x while the walker stands at wxNow. Taut everywhere except
     // right under the feet, where their weight pulls a dip that travels with them.
     function ropeY(x, wxNow) {
       var span = Math.sin(Math.PI * Math.max(0, Math.min(1, W ? wxNow / W : 0)));
-      var k = (x - wxNow) / SPREAD;
+      var k = (x - wxNow) / spread();
       return cy
         + SLACK * Math.sin(Math.PI * (W ? x / W : 0))   // barely-there slack
-        + LOAD * span * Math.exp(-k * k / 2);           // the loaded dip
+        + dipDepth() * span * Math.exp(-k * k / 2);     // the loaded dip
     }
 
     function drawRope(wxNow) {
@@ -574,6 +593,8 @@
 
     function build() {
       W = box.clientWidth || 1200;
+      H = box.clientHeight || H;      // keep the viewBox 1:1 with the CSS box,
+      cy = H / 2;                     // otherwise the rope is scaled to fit
       svg.setAttribute("viewBox", "0 0 " + W + " " + H);
       if (wx > W) wx = 0;
       drawRope(wx);
@@ -587,11 +608,11 @@
       var teeter = Math.sin(tSec * 2.1) * 4.5 + Math.sin(tSec * 3.9) * 2.4;
       walker.setAttribute("transform",
         "translate(" + wx.toFixed(2) + "," + y.toFixed(2) + ") " +
-        "rotate(" + (slope + teeter).toFixed(2) + ") scale(" + FIG + ")");
+        "rotate(" + (slope + teeter).toFixed(2) + ") scale(" + fig().toFixed(4) + ")");
       walker.setAttribute("opacity", opacity.toFixed(3));
 
       // step through the sheet by distance covered, so the feet don't skate
-      var f = Math.floor(wx / CYCLE * FRAMES) % FRAMES;
+      var f = Math.floor(wx / cycle() * FRAMES) % FRAMES;
       if (f !== shownFrame) {
         shownFrame = f;
         sprite.setAttribute("x", (-ANCHOR_X - f * FW).toFixed(2));
@@ -602,7 +623,7 @@
       var tSec = ts / 1000;
       var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0;
       last = ts;
-      wx += SPEED * dt;
+      wx += speedPx() * dt;
       if (wx > W) wx = 0;                       // off the right edge, begin again at the left
       var edge = Math.min(wx, W - wx) / 60;     // fade in/out at both ends
       place(tSec, Math.max(0, Math.min(1, edge)));
